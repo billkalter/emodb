@@ -27,4 +27,6 @@ public interface ContainsCondition extends Condition {
     Set<Object> getValues();
 
     Containment getContainment();
+
+    boolean isSubsetOf(ContainsCondition condition);
 }

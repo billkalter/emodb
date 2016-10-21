@@ -5,6 +5,7 @@ import com.bazaarvoice.emodb.sor.condition.ConditionVisitor;
 import com.bazaarvoice.emodb.sor.condition.Conditions;
 import com.bazaarvoice.emodb.sor.condition.LikeCondition;
 import com.bazaarvoice.emodb.sor.delta.deser.DeltaJson;
+import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.io.CharStreams;
@@ -142,6 +143,62 @@ abstract public class LikeConditionImpl extends AbstractCondition implements Lik
     }
 
     @Override
+    public String getCondition() {
+        return _condition;
+    }
+
+    @Override
+    public boolean overlaps(LikeCondition condition) {
+        LikeConditionImpl other;
+        if (condition instanceof LikeConditionImpl) {
+            other = (LikeConditionImpl) condition;
+        } else {
+            other = create(condition.getCondition());
+        }
+
+        String prefix = getPrefix();
+        String otherPrefix = other.getPrefix();
+        String suffix = getSuffix();
+        String otherSuffix = other.getSuffix();
+
+        return (prefix == null || otherPrefix == null || prefix.equals(otherPrefix)) &&
+                (suffix == null || otherSuffix == null || suffix.equals(otherSuffix));
+    }
+
+    @Override
+    public boolean isSubsetOf(LikeCondition condition) {
+
+        // This condition is a subset of the other condition if this condition, with all wildcards replaced with
+        // unique characters, matches the other condition.
+        String testString = substituteWildcardsWith("\u0000");
+        return condition.matches(testString);
+    }
+
+    /**
+     * Returns the constant prefix shared by all results matching this condition, or null if no such prefix exists.
+     * For example:  "ab*cd" has prefix "ab" and "*cd" has prefix null.  Default implementation returns null,
+     * subclasses with a prefix must override.
+     */
+    @Override
+    public String getPrefix() {
+        return null;
+    }
+
+    /**
+     * Returns the constant suffix shared by all results matching this condition, or null if no such suffix exists.
+     * For example:  "ab*cd" has suffix "cd" and "ab*" has suffix null.  Default implementation returns null,
+     * subclasses with a suffix must override.
+     */
+    protected String getSuffix() {
+        return null;
+    }
+
+    /**
+     * Returns this condition with all wildcards substituted with the provided string.
+     */
+    abstract protected String substituteWildcardsWith(String substitute);
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;
@@ -186,6 +243,11 @@ abstract public class LikeConditionImpl extends AbstractCondition implements Lik
         public Condition simplify() {
             return Conditions.equal(_expression);
         }
+
+        @Override
+        protected String substituteWildcardsWith(String substitute) {
+            return _expression;
+        }
     }
 
     /** Implementation for matching all strings, such as "*" */
@@ -215,6 +277,11 @@ abstract public class LikeConditionImpl extends AbstractCondition implements Lik
         public Condition simplify() {
             return Conditions.isString();
         }
+
+        @Override
+        protected String substituteWildcardsWith(String substitute) {
+            return substitute;
+        }
     }
 
     /** Implementation for matching a prefix, such as "review:*" */
@@ -230,6 +297,16 @@ abstract public class LikeConditionImpl extends AbstractCondition implements Lik
         public boolean matches(String input) {
             return input.startsWith(_prefix);
         }
+
+        @Override
+        public String getPrefix() {
+            return _prefix;
+        }
+
+        @Override
+        protected String substituteWildcardsWith(String substitute) {
+            return _prefix + substitute;
+        }
     }
 
     /** Implementation for matching a suffix, such as "*:client" */
@@ -244,6 +321,16 @@ abstract public class LikeConditionImpl extends AbstractCondition implements Lik
         @Override
         public boolean matches(String input) {
             return input.endsWith(_suffix);
+        }
+
+        @Override
+        protected String getSuffix() {
+            return _suffix;
+        }
+
+        @Override
+        protected String substituteWildcardsWith(String substitute) {
+            return substitute + _suffix;
         }
     }
 
@@ -266,6 +353,21 @@ abstract public class LikeConditionImpl extends AbstractCondition implements Lik
                     input.startsWith(_prefix) &&
                     input.endsWith(_suffix);
         }
+
+        @Override
+        public String getPrefix() {
+            return _prefix;
+        }
+
+        @Override
+        protected String getSuffix() {
+            return _suffix;
+        }
+
+        @Override
+        protected String substituteWildcardsWith(String substitute) {
+            return _prefix + substitute + _suffix;
+        }
     }
 
     /** Implementation for matching a contained expression, such as "*client*" */
@@ -280,6 +382,11 @@ abstract public class LikeConditionImpl extends AbstractCondition implements Lik
         @Override
         public boolean matches(String input) {
             return input.contains(_expression);
+        }
+
+        @Override
+        protected String substituteWildcardsWith(String substitute) {
+            return substitute + _expression + substitute;
         }
     }
 
@@ -327,6 +434,23 @@ abstract public class LikeConditionImpl extends AbstractCondition implements Lik
 
             // Ensure the final inner string terminated before the suffix
             return idx <= input.length() - _suffix.length();
+        }
+
+        @Override
+        public String getPrefix() {
+            return _prefix.length() != 0 ? _prefix : null;
+        }
+
+        @Override
+        protected String getSuffix() {
+            return _suffix.length() != 0 ? _suffix : null;
+        }
+
+        @Override
+        protected String substituteWildcardsWith(String substitute) {
+            return _prefix + substitute +
+                    Joiner.on(substitute).join(_innerSubstrings) +
+                    substitute + _suffix;
         }
     }
 }

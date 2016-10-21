@@ -6,12 +6,14 @@ import com.bazaarvoice.emodb.auth.apikey.ApiKeyRequest;
 import com.bazaarvoice.emodb.auth.apikey.ApiKeySecurityManager;
 import com.bazaarvoice.emodb.auth.identity.InMemoryAuthIdentityManager;
 import com.bazaarvoice.emodb.auth.permissions.InMemoryPermissionManager;
+import com.bazaarvoice.emodb.auth.permissions.PermissionManager;
 import com.bazaarvoice.emodb.auth.permissions.PermissionUpdateRequest;
 import com.bazaarvoice.emodb.blob.api.BlobStore;
 import com.bazaarvoice.emodb.common.dropwizard.task.TaskRegistry;
 import com.bazaarvoice.emodb.sor.api.DataStore;
 import com.bazaarvoice.emodb.sor.condition.Conditions;
 import com.bazaarvoice.emodb.web.auth.DefaultRoles;
+import com.bazaarvoice.emodb.web.auth.EmoPermission;
 import com.bazaarvoice.emodb.web.auth.EmoPermissionResolver;
 import com.bazaarvoice.emodb.web.auth.Permissions;
 import com.bazaarvoice.emodb.web.auth.RoleAdminTask;
@@ -21,9 +23,11 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
 import com.google.common.io.ByteStreams;
 import org.apache.shiro.authz.Permission;
 import org.apache.shiro.cache.MemoryConstrainedCacheManager;
+import org.apache.shiro.subject.Subject;
 import org.apache.shiro.util.ThreadContext;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
@@ -35,7 +39,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static org.mockito.Matchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.fail;
 
@@ -78,6 +84,23 @@ public class RoleAdminTaskTest {
     }
 
     @Test
+    public void testInsufficientPermissionsToManageRoles()
+            throws Exception {
+        // Notably this role does not have manageRoles() permission
+        _permissionManager.updateForRole("insufficient-role", new PermissionUpdateRequest().permit("sor|read|*"));
+        _authIdentityManager.updateIdentity(new ApiKey("insufficient-key", "id0", ImmutableSet.of("insufficient-role")));
+
+        StringWriter out = new StringWriter();
+        _task.execute(ImmutableMultimap.of(
+                ApiKeyRequest.AUTHENTICATION_PARAM, "insufficient-key",
+                "action", "view",
+                "role", "any-role"),
+                new PrintWriter(out));
+
+        assertEquals(out.toString(), "Not authorized\n");
+    }
+
+    @Test
     public void testViewRole()
             throws Exception {
         _permissionManager.updateForRole("view-role",
@@ -104,6 +127,9 @@ public class RoleAdminTaskTest {
     @Test
     public void testCreateRole()
             throws Exception {
+        // First, admin role needs permission to create the roles it is permitting
+        _permissionManager.updateForRole(DefaultRoles.admin.toString(), new PermissionUpdateRequest().permit("*"));
+
         _task.execute(ImmutableMultimap.of(
                 ApiKeyRequest.AUTHENTICATION_PARAM, "test-admin",
                 "action", "update",
@@ -125,6 +151,9 @@ public class RoleAdminTaskTest {
     @Test
     public void testUpdateRole()
             throws Exception {
+        // First, admin role needs permission to create the roles it is permitting
+        _permissionManager.updateForRole(DefaultRoles.admin.toString(), new PermissionUpdateRequest().permit("*"));
+
         _permissionManager.updateForRole("existing-role",
                 new PermissionUpdateRequest()
                         .permit("queue|post|foo", "queue|post|bar"));
@@ -219,6 +248,63 @@ public class RoleAdminTaskTest {
             // The first line is a header; skip it and check the remaining lines
             assertEquals(actual.subList(1, actual.size()), entry.getValue());
         }
+    }
+
+    @Test
+    public void testFindDeprecatedPermissions() throws Exception {
+        ApiKeySecurityManager securityManager = mock(ApiKeySecurityManager.class);
+        when(securityManager.createSubject(any())).thenReturn(mock(Subject.class));
+
+        EmoPermission deprecated = mock(EmoPermission.class);
+        when(deprecated.toString()).thenReturn("deprecated");
+        when(deprecated.isAssignable()).thenReturn(false);
+
+        EmoPermission current = mock(EmoPermission.class);
+        when(current.toString()).thenReturn("current");
+        when(current.isAssignable()).thenReturn(true);
+
+        PermissionManager permissionManager = mock(PermissionManager.class);
+        when(permissionManager.getAll()).thenReturn(ImmutableList.<Map.Entry<String, Set<Permission>>>builder()
+                .add(Maps.immutableEntry("onlyCurrent", ImmutableSet.of(current)))
+                .add(Maps.immutableEntry("onlyDeprecated", ImmutableSet.of(deprecated)))
+                .add(Maps.immutableEntry("both", ImmutableSet.of(current, deprecated)))
+                .build());
+
+        _task = new RoleAdminTask(securityManager, permissionManager, mock(TaskRegistry.class));
+
+        StringWriter out = new StringWriter();
+
+        _task.execute(ImmutableMultimap.of(
+                ApiKeyRequest.AUTHENTICATION_PARAM, "test-admin",
+                "action", "find_deprecated_permissions"),
+                new PrintWriter(out));
+
+        List<String> actual = ImmutableList.copyOf(out.toString().split("\n"));
+        // First two lines are header
+        assertEquals(actual.subList(2, actual.size()), ImmutableList.of("both", "- deprecated", "onlyDeprecated", "- deprecated"));
+    }
+
+    @Test
+    public void testCreateRoleWithUnboundPermissions() throws Exception  {
+        // First, give admin role all permissions within the "sor" context
+        _permissionManager.updateForRole(DefaultRoles.admin.toString(), new PermissionUpdateRequest().permit("sor|*"));
+
+        StringWriter out = new StringWriter();
+
+        _task.execute(ImmutableMultimap.of(
+                ApiKeyRequest.AUTHENTICATION_PARAM, "test-admin",
+                "action", "update",
+                "role", "new-role",
+                "permit", "sor|update|if({..,\"foo\":\"bar\"})",
+                "permit", "queue|post|*"),
+                new PrintWriter(out));
+
+        List<String> actual = ImmutableList.copyOf(out.toString().split("\n"));
+
+        assertEquals(actual, ImmutableList.of(
+                "You do not has sufficient permissions to grant the following permission(s):",
+                "- queue|post|*",
+                "Please remove or rewrite the above permission(s) constrained within your permissions"));
     }
 
     private Set<Permission> toPermissionSet(Iterable<String> permissionStrings) {
