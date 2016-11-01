@@ -133,6 +133,10 @@ public enum DefaultRoles {
             ImmutableSet.of(sor_read),
             Permissions.replicateDatabus()),
 
+    // role for using compaction control API.
+    compaction_control (
+            Permissions.compactionControl()),
+
     // Reserved role for anonymous access
     anonymous (
             // TODO:  Lock this down.  For now this will permit all standard client operations with excluding pii tables/placements in SOR.

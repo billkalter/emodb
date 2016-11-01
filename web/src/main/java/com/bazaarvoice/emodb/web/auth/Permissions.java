@@ -49,6 +49,7 @@ public class Permissions {
     public final static String REPLICATE_DATABUS = "replicate_databus";
     public final static String RAW_DATABUS = "raw_databus";
     public final static String GRANT = "grant";
+    public final static String COMPACTION_CONTROL = "comp_control";
 
     // Common resource values
     public final static AnyResource ALL = new AnyResource();
@@ -333,5 +334,9 @@ public class Permissions {
      */
     public static String rawDatabus() {
         return format("%s|%s", SYSTEM, RAW_DATABUS);
+    }
+
+    public static String compactionControl() {
+        return format("%s|%s", SYSTEM, COMPACTION_CONTROL);
     }
 }
