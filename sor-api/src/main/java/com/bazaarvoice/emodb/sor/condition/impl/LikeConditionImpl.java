@@ -149,25 +149,28 @@ abstract public class LikeConditionImpl extends AbstractCondition implements Lik
 
     @Override
     public boolean overlaps(LikeCondition condition) {
-        LikeConditionImpl other;
-        if (condition instanceof LikeConditionImpl) {
-            other = (LikeConditionImpl) condition;
-        } else {
-            other = create(condition.getCondition());
+        // If either condition is a constant then the other condition must contain the the condition's string to overlap.
+        // For example, "door" overlaps "d*r"
+        if (!hasWildcards()) {
+            return condition.matches(getCondition());
+        } else if (!condition.hasWildcards()) {
+            return matches(condition.getCondition());
         }
 
-        String prefix = getPrefix();
-        String otherPrefix = other.getPrefix();
-        String suffix = getSuffix();
-        String otherSuffix = other.getSuffix();
+        // Any internal wildcards surrounded by constants can match any other internal values, so determining overlap
+        // only depends on the prefixes and suffixes.
 
-        return (prefix == null || otherPrefix == null || prefix.equals(otherPrefix)) &&
-                (suffix == null || otherSuffix == null || suffix.equals(otherSuffix));
+        String prefix = getPrefix();
+        String otherPrefix = condition.getPrefix();
+        String suffix = getSuffix();
+        String otherSuffix = condition.getSuffix();
+
+        return (prefix == null || otherPrefix == null || prefix.startsWith(otherPrefix) || otherPrefix.startsWith(prefix)) &&
+                (suffix == null || otherSuffix == null || suffix.endsWith(otherSuffix) || otherSuffix.endsWith(suffix));
     }
 
     @Override
     public boolean isSubsetOf(LikeCondition condition) {
-
         // This condition is a subset of the other condition if this condition, with all wildcards replaced with
         // unique characters, matches the other condition.
         String testString = substituteWildcardsWith("\u0000");
@@ -175,9 +178,7 @@ abstract public class LikeConditionImpl extends AbstractCondition implements Lik
     }
 
     /**
-     * Returns the constant prefix shared by all results matching this condition, or null if no such prefix exists.
-     * For example:  "ab*cd" has prefix "ab" and "*cd" has prefix null.  Default implementation returns null,
-     * subclasses with a prefix must override.
+     * Default implementation returns null, subclasses with a prefix must override.
      */
     @Override
     public String getPrefix() {
@@ -185,14 +186,20 @@ abstract public class LikeConditionImpl extends AbstractCondition implements Lik
     }
 
     /**
-     * Returns the constant suffix shared by all results matching this condition, or null if no such suffix exists.
-     * For example:  "ab*cd" has suffix "cd" and "ab*" has suffix null.  Default implementation returns null,
-     * subclasses with a suffix must override.
+     * Default implementation returns null, subclasses with a suffix must override.
      */
-    protected String getSuffix() {
+    @Override
+    public String getSuffix() {
         return null;
     }
 
+    /**
+     * Default implementation returns true, the one subclass where this is false, {@link ExactMatch}, overrides.
+     */
+    @Override
+    public boolean hasWildcards() {
+        return true;
+    }
     /**
      * Returns this condition with all wildcards substituted with the provided string.
      */
@@ -242,6 +249,11 @@ abstract public class LikeConditionImpl extends AbstractCondition implements Lik
         @Override
         public Condition simplify() {
             return Conditions.equal(_expression);
+        }
+
+        @Override
+        public boolean hasWildcards() {
+            return false;
         }
 
         @Override
@@ -324,7 +336,7 @@ abstract public class LikeConditionImpl extends AbstractCondition implements Lik
         }
 
         @Override
-        protected String getSuffix() {
+        public String getSuffix() {
             return _suffix;
         }
 
@@ -360,7 +372,7 @@ abstract public class LikeConditionImpl extends AbstractCondition implements Lik
         }
 
         @Override
-        protected String getSuffix() {
+        public String getSuffix() {
             return _suffix;
         }
 
@@ -442,7 +454,7 @@ abstract public class LikeConditionImpl extends AbstractCondition implements Lik
         }
 
         @Override
-        protected String getSuffix() {
+        public String getSuffix() {
             return _suffix.length() != 0 ? _suffix : null;
         }
 

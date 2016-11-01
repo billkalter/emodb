@@ -25,6 +25,13 @@ import static com.google.common.base.Preconditions.checkNotNull;
 /**
  * Evaluator for determining if, for two conditions A and B, B is a subset of A if every input for B which evaluates
  * to true also evaluates to true for A.
+ *
+ * For example:
+ *
+ * <code>
+ *     SubsetEvaluator.isSubset(Conditions.equal("review"), Conditions.in("review", "question")) == true
+ *     SubsetEvaluator.isSubset(Conditions.equal("app_global:sys"), Conditions.like("*:ugc")) == false
+ * </code>
  */
 public class SubsetEvaluator implements ConditionVisitor<Condition, Boolean> {
 
@@ -51,6 +58,7 @@ public class SubsetEvaluator implements ConditionVisitor<Condition, Boolean> {
         LeftResolvedVisitor<EqualCondition> visitor = new LeftResolvedVisitor<EqualCondition>(left) {
             @Override
             public Boolean visit(EqualCondition right, Void context) {
+                // Example: "value" subset? "value"
                 return Objects.equal(_left.getValue(), right.getValue());
             }
 
@@ -183,13 +191,8 @@ public class SubsetEvaluator implements ConditionVisitor<Condition, Boolean> {
                 if (right.getState() == State.DEFINED) {
                     return true;
                 }
-                if (_left.getValue() instanceof String) {
-                    return right.getState() == State.STRING;
-                }
-                if (_left.getValue() instanceof Number) {
-                    return right.getState() == State.NUM;
-                }
-                return false;
+                return (_left.getValue() instanceof String && right.getState() == State.STRING) ||
+                        (_left.getValue() instanceof Number && right.getState() == State.NUM);
             }
 
             @Override
@@ -250,6 +253,7 @@ public class SubsetEvaluator implements ConditionVisitor<Condition, Boolean> {
 
             @Override
             public Boolean visit(ComparisonCondition right, Void context) {
+                // Example: like("v*") subset? gt("v")
                 if (right.getValue() instanceof String) {
                     String value = (String) right.getValue();
                     // If the condition has a prefix then it can be used for comparison.
@@ -260,8 +264,7 @@ public class SubsetEvaluator implements ConditionVisitor<Condition, Boolean> {
                         return false;
                     }
 
-                    String comparisonValue = (String) right.getValue();
-                    return prefix.length() >= comparisonValue.length() && ConditionEvaluator.eval(right, prefix, null);
+                    return prefix.length() >= value.length() && ConditionEvaluator.eval(right, prefix, null);
                 }
                 return false;
             }
@@ -313,23 +316,15 @@ public class SubsetEvaluator implements ConditionVisitor<Condition, Boolean> {
         return right.visit(visitor, null);
     }
 
-    /*
-     * Rules for when the left condition is a NOT condition:
-     *
-     * not x subset y -> hasInverse(x) && inverse(x) subset y
-     * not x subset not y -> y subset x
-     */
     @Override
     public Boolean visit(NotCondition left, Condition right) {
-        if (!(right instanceof NotCondition)) {
-            // If the left has an inverse then use that
-            Condition inverseLeft = InverseEvaluator.getInverseOf(left.getCondition());
-            if (inverseLeft != null) {
-                return checkIsSubset(inverseLeft, right);
-            }
+        // If the left has an inverse then use that
+        Condition inverseLeft = InverseEvaluator.getInverseOf(left.getCondition());
+        if (inverseLeft != null) {
+            return checkIsSubset(inverseLeft, right);
         }
 
-        // Default visitor behavior will evaluate this correctly, returning false cases except alwaysTrue()
+        // Default visitor behavior will evaluate this correctly, returning false in all cases except alwaysTrue()
         // and the double-negative condition, not(right) subset? not(left)
         LeftResolvedVisitor<NotCondition> visitor = new LeftResolvedVisitor<>(left);
         return right.visit(visitor, null);
@@ -338,6 +333,8 @@ public class SubsetEvaluator implements ConditionVisitor<Condition, Boolean> {
     @Override
     public Boolean visit(AndCondition left, Condition right) {
         if (!(right instanceof AndCondition)) {
+            // Example: and(gt("a"),lt("e")) subset? gt("a")
+
             // Right must be satisfied by at least one "and" condition
             for (Condition andCondition : left.getConditions()) {
                 if (checkIsSubset(andCondition, right)) {
@@ -346,6 +343,8 @@ public class SubsetEvaluator implements ConditionVisitor<Condition, Boolean> {
             }
             return false;
         }
+
+        // Example: and({..,"key":"value"},intrinsic("~table":"ugc_us:ugc")) subset? and({..,"key":like("v*")},intrinsic("~table":like("*:ugc"))
 
         // Each right condition must have at least one left condition that is a subset of it
 
@@ -360,6 +359,7 @@ public class SubsetEvaluator implements ConditionVisitor<Condition, Boolean> {
 
     @Override
     public Boolean visit(OrCondition left, Condition right) {
+        // Example: or(gt("e"),in("a","c")) subset? is(string)
         for (Condition orCondition : left.getConditions()) {
             if (!checkIsSubset(orCondition, right)) {
                 return false;
@@ -396,6 +396,7 @@ public class SubsetEvaluator implements ConditionVisitor<Condition, Boolean> {
 
         @Override
         public final Boolean visit(AndCondition right, Void context) {
+            // left is a subset of right only if left is a subset of each "and" condition
             for (Condition andCondition : right.getConditions()) {
                 if (!andCondition.visit(this, context)) {
                     return false;
@@ -406,6 +407,7 @@ public class SubsetEvaluator implements ConditionVisitor<Condition, Boolean> {
 
         @Override
         public final Boolean visit(OrCondition right, Void context) {
+            // left is a subset of right only if left is a subset of at least one "or" condition
             for (Condition orCondition : right.getConditions()) {
                 if (orCondition.visit(this, context)) {
                     return true;
@@ -414,20 +416,24 @@ public class SubsetEvaluator implements ConditionVisitor<Condition, Boolean> {
             return false;
         }
 
-        /**
-         * Rules for when the right condition is a NOT condition:
-         *
-         * x subset not y -> not (x subset y)
-         * not x subset not y -> y subset x
-         */
         @Override
         public final Boolean visit(NotCondition right, Void context) {
-            // If possible invert the left condition and check for "not left subset not right".  This resolves
-            // false positives for conditions such as for "gt(10) subset? not(le(20)) == false"
+            // If possible invert the right condition
+            Condition inverseRight = InverseEvaluator.getInverseOf(right.getCondition());
+            if (inverseRight != null) {
+                return checkIsSubset(_left, inverseRight);
+            }
+
+            // If possible invert the left condition. Since "not(x) subset not(y)" == "y subset x", if the left condition
+            // can be inverted such that "not(invertedLeft)" == "left" then we can return  "right.condition subset inverseLeft"
             Condition inverseLeft = InverseEvaluator.getInverseOf(_left);
             if (inverseLeft != null) {
                 return checkIsSubset(right.getCondition(), inverseLeft);
             }
+
+            // Neither left nor right have an inverse.  If the right's condition is distinct from left then it is
+            // a subset.  For example:  "ugc_us:ugc" is a subset of "not(like("*:sys"))" because "ugc_us:ugc"
+            // and "like("*:sys")" are distinct.
 
             return DistinctEvaluator.areDistinct(_left, right.getCondition());
         }

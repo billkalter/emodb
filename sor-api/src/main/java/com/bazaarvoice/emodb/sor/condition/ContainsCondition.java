@@ -28,5 +28,12 @@ public interface ContainsCondition extends Condition {
 
     Containment getContainment();
 
+    /**
+     * Returns true if for every value v which matches this condition v also matches the provided condition.
+     * For example, containsAll("a","b","c") is a subset of containsAll("a","b"), while containsAll("a","b") is not
+     * a subset of containsAll("a","b","c") since v exists, ["a","b"], which matches the former but not the latter.
+     */
     boolean isSubsetOf(ContainsCondition condition);
+
+    boolean overlaps(ContainsCondition condition);
 }

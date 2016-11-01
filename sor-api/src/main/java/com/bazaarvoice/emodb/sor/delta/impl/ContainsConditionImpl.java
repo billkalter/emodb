@@ -92,6 +92,15 @@ public class ContainsConditionImpl implements ContainsCondition {
     }
 
     @Override
+    public boolean overlaps(ContainsCondition condition) {
+        // By definition containsAll and containsAny do not restrict any additional values besides those specified.
+        // Therefore the only conditions that don't overlap are two containsOnly() conditions where the values
+        // do not match.
+        return getContainment() != Containment.ONLY || condition.getContainment() != Containment.ONLY ||
+                getValues().equals(condition.getValues());
+    }
+
+    @Override
     public void appendTo(Appendable buf) throws IOException {
         if (_values.size() == 1 && _containment != Containment.ONLY) {
             buf.append("contains(");

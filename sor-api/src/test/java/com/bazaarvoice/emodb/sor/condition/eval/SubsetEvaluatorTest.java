@@ -4,12 +4,15 @@ import com.bazaarvoice.emodb.sor.api.Intrinsic;
 import com.bazaarvoice.emodb.sor.condition.Condition;
 import com.bazaarvoice.emodb.sor.condition.Conditions;
 import com.bazaarvoice.emodb.sor.condition.MapCondition;
+import com.bazaarvoice.emodb.sor.condition.impl.NotConditionImpl;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertTrue;
 
 public class SubsetEvaluatorTest {
 
@@ -143,7 +146,6 @@ public class SubsetEvaluatorTest {
                 new Object[] {Conditions.ge(5), Conditions.not(Conditions.lt(5)), true},
                 new Object[] {Conditions.lt(5), Conditions.not(Conditions.ge(5)), true},
                 new Object[] {Conditions.le(5), Conditions.not(Conditions.gt(5)), true},
-
                 new Object[] {Conditions.gt(5), Conditions.alwaysFalse(), false},
                 new Object[] {Conditions.gt(5), Conditions.isUndefined(), false},
                 new Object[] {Conditions.gt(5), Conditions.isString(), false},
@@ -156,6 +158,9 @@ public class SubsetEvaluatorTest {
                 new Object[] {Conditions.lt(5), Conditions.le(4), false},
                 new Object[] {Conditions.le(5), Conditions.lt(5), false},
                 new Object[] {Conditions.le(5), Conditions.le(4), false},
+                new Object[] {Conditions.le(5), Conditions.ge(20), false},
+                new Object[] {Conditions.le(5), Conditions.gt(5), false},
+                new Object[] {Conditions.le(5), Conditions.ge(5), false},
                 new Object[] {Conditions.gt(5), Conditions.not(Conditions.le(6)), false},
                 new Object[] {Conditions.ge(5), Conditions.not(Conditions.lt(6)), false},
                 new Object[] {Conditions.lt(5), Conditions.not(Conditions.ge(4)), false},
@@ -187,7 +192,7 @@ public class SubsetEvaluatorTest {
                 new Object[] {Conditions.containsOnly("up"), Conditions.containsOnly("down"), false},
                 new Object[] {Conditions.contains("up"), Conditions.equal(ImmutableList.of("up")), false},
                 new Object[] {Conditions.contains("up"), Conditions.in(ImmutableList.of("up", "down"), ImmutableList.of("up", "left")), false},
-                new Object[] {Conditions.contains("up"), Conditions.equal(ImmutableList.of("up")), false},
+                new Object[] {Conditions.contains("up"), Conditions.equal(ImmutableList.of("down")), false},
                 new Object[] {Conditions.contains("up"), Conditions.intrinsic(Intrinsic.TABLE, "up"), false},
                 new Object[] {Conditions.contains("up"), Conditions.like("up"), false},
                 new Object[] {Conditions.contains("up"), Conditions.mapBuilder().contains("up", "up").build(), false},
@@ -207,6 +212,8 @@ public class SubsetEvaluatorTest {
                 new Object[] {Conditions.like("a*"), Conditions.not(Conditions.like("b*c")), true},
                 new Object[] {Conditions.like("*z"), Conditions.not(Conditions.like("*y")), true},
                 new Object[] {Conditions.like("*z"), Conditions.not(Conditions.like("x*y")), true},
+                new Object[] {Conditions.like("a*az"), Conditions.not(Conditions.like("ab*yz")), true},
+                new Object[] {Conditions.like("aa*z"), Conditions.not(Conditions.like("ab*yz")), true},
                 new Object[] {Conditions.like("a*b*c"), Conditions.not(Conditions.like("x*y*z")), true},
                 new Object[] {Conditions.like("ab*"), Conditions.ge("a"), true},
                 new Object[] {Conditions.like("ab*"), Conditions.ge("ab"), true},
@@ -226,6 +233,8 @@ public class SubsetEvaluatorTest {
                 new Object[] {Conditions.like("*"), Conditions.not(Conditions.like("a*b")), false},
                 new Object[] {Conditions.like("a*b*c"), Conditions.not(Conditions.like("*b*c")), false},
                 new Object[] {Conditions.like("a*b"), Conditions.not(Conditions.like("*")), false},
+                new Object[] {Conditions.like("a*z"), Conditions.not(Conditions.like("ab*yz")), false},
+                new Object[] {Conditions.like("ab*yz"), Conditions.not(Conditions.like("a*z")), false},
                 new Object[] {Conditions.like("a*b"), Conditions.not(Conditions.isString()), false},
                 new Object[] {Conditions.like("ab*c"), Conditions.like("a*bc"), false},
                 new Object[] {Conditions.like("a*"), Conditions.in("apple", "ant"), false},
@@ -301,19 +310,29 @@ public class SubsetEvaluatorTest {
                 new Object[] {Conditions.equal("a"), Conditions.and(Conditions.in("a", "b", "c"), Conditions.isDefined()), true},
                 new Object[] {Conditions.and(Conditions.ge("a"), Conditions.le("z")), Conditions.or(Conditions.isNull(), Conditions.isString()), true},
                 new Object[] {Conditions.and(Conditions.ge("a"), Conditions.le("z")), Conditions.not(Conditions.and(Conditions.isNull(), Conditions.isMap())), true},
+                new Object[] {Conditions.and(Conditions.ge("a"), Conditions.le("z")), Conditions.not(Conditions.and(Conditions.isNull(), Conditions.isString())), true},
+                new Object[] {Conditions.and(Conditions.gt(5), Conditions.lt(10)), Conditions.not(Conditions.and(Conditions.gt(20), Conditions.lt(30))), true},
                 new Object[] {Conditions.and(Conditions.ge("a"), Conditions.le("z")), Conditions.alwaysFalse(), false},
                 new Object[] {Conditions.and(Conditions.ge("a"), Conditions.le("z")), Conditions.isUndefined(), false},
                 new Object[] {Conditions.and(Conditions.ge("a"), Conditions.le("z")), Conditions.isNumber(), false},
                 new Object[] {Conditions.and(Conditions.ge(5), Conditions.le(10)), Conditions.isString(), false},
                 new Object[] {Conditions.and(Conditions.ge("a"), Conditions.le("k")), Conditions.and(Conditions.ge("c"), Conditions.le("z")), false},
                 new Object[] {Conditions.and(Conditions.ge("c"), Conditions.le("z")), Conditions.and(Conditions.ge("a"), Conditions.le("k")), false},
+                new Object[] {Conditions.and(Conditions.ge("a"), Conditions.le("b")), Conditions.and(Conditions.ge("x"), Conditions.le("y")), false},
                 new Object[] {Conditions.and(Conditions.ge("a")), Conditions.and(Conditions.ge("a"), Conditions.le("z")), false},
                 new Object[] {Conditions.and(Conditions.ge("a"), Conditions.le("z")), Conditions.and(Conditions.ge("a"), Conditions.le("z"), Conditions.like("*g*")), false},
+                new Object[] {Conditions.and(Conditions.ge("a"), Conditions.ge("b")), Conditions.and(Conditions.le("y"), Conditions.le("z")), false},
+                new Object[] {Conditions.and(Conditions.le("a"), Conditions.le("b")), Conditions.and(Conditions.ge("y"), Conditions.ge("z")), false},
+                new Object[] {Conditions.and(Conditions.le("a"), Conditions.le("b")), Conditions.not(Conditions.or(Conditions.lt("y"), Conditions.lt("z"))), false},
                 new Object[] {Conditions.alwaysTrue(), Conditions.and(Conditions.ge("a"), Conditions.le("z")), false},
                 new Object[] {Conditions.equal("g"), Conditions.and(Conditions.ge("y"), Conditions.le("z")), false},
                 new Object[] {Conditions.equal("a"), Conditions.and(Conditions.in("x", "y", "z"), Conditions.isDefined()), false},
                 new Object[] {Conditions.and(Conditions.ge("a"), Conditions.le("z")), Conditions.or(Conditions.isList(), Conditions.isMap()), false},
-                new Object[] {Conditions.and(Conditions.ge("a"), Conditions.le("z")), Conditions.not(Conditions.and(Conditions.isNull(), Conditions.isString())), true},
+                new Object[] {Conditions.and(Conditions.like("a*"), Conditions.like("*z")), Conditions.and(Conditions.like("b*"), Conditions.like("*y")), false},
+                new Object[] {Conditions.and(Conditions.like("*a*"), Conditions.like("*b*")), Conditions.not(Conditions.and(Conditions.like("*c*"), Conditions.like("*d*"))), false},
+                new Object[] {Conditions.and(Conditions.gt(5), Conditions.lt(10)), Conditions.not(Conditions.and(Conditions.gt(6), Conditions.lt(9))), false},
+                new Object[] {Conditions.and(Conditions.gt(5), Conditions.lt(10)), Conditions.not(Conditions.and(Conditions.gt(8), Conditions.lt(14))), false},
+
 
                 // Or conditions
                 new Object[] {Conditions.or(Conditions.equal("a"), Conditions.equal("b")), Conditions.alwaysTrue(), true},
@@ -379,7 +398,6 @@ public class SubsetEvaluatorTest {
                 new Object[] {Conditions.le(1), Conditions.le(5), true},
                 new Object[] {Conditions.mapBuilder().matches("k1", Conditions.not(Conditions.or(Conditions.isUndefined(), Conditions.equal("v1")))).build(),
                         Conditions.mapBuilder().matches("k1", Conditions.isDefined()).build(), true},
-
         };
     }
 
