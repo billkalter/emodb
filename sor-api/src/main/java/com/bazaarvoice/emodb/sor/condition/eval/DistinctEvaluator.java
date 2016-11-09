@@ -33,7 +33,8 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * There are two reasons why these implementations are not provided:
  *
  * <ol>
- *     <li>The implementation for these conditions is complicated and requires condition evaluation capabilities currently
+ *     <li>
+ *         The implementation for these conditions is complicated and requires condition evaluation capabilities currently
  *         not available.  For example, <code>and(ge(0),le(20))</code> is not distinct with <code>and(ge(10),le(30))</code>,
  *         but there is no current ability to combine the two conditions into a single ranged condition.
  *     </li>
@@ -42,12 +43,12 @@ import static com.google.common.base.Preconditions.checkNotNull;
  *     </li>
  * </ol>
  *
- * Proof for the second statement above:
+ * Proof for the second reason above:
  *
  * The only circumstance this evaluator is used is if the right condition in the subset check is a "not" condition
  * and is handled by {@link SubsetEvaluator.LeftResolvedVisitor#visit(NotCondition, Void)}.  That method only checks
  * whether two conditions are distinct if neither the left nor the right's nested condition have an inverse.  "Not", "and", and
- * "or" conditions all have inverses as implemented at {@link InverseEvaluator#visit(NotCondition, Void)},
+ * "or" conditions all have inverses as implemented by {@link InverseEvaluator#visit(NotCondition, Void)},
  * {@link InverseEvaluator#visit(AndCondition, Void)}, and {@link InverseEvaluator#visit(OrCondition, Void)},
  * respectively.  Therefore, SubsetEvaluator will never make a distinct check for any conditions where either the
  * left or right parameter is a "not", "and", or "or" condition.  This implementation returns false in all of those
@@ -80,7 +81,7 @@ class DistinctEvaluator implements ConditionVisitor<Condition, Boolean> {
     @Override
     public Boolean visit(ConstantCondition left, Condition right) {
         if (!left.getValue()) {
-            // alwaysFalse() is always distinct from any other set since it never returns true
+            // alwaysFalse() is always distinct from any other condition since it never returns true
             return true;
         }
 
@@ -125,7 +126,7 @@ class DistinctEvaluator implements ConditionVisitor<Condition, Boolean> {
 
             @Override
             public boolean visit(ComparisonCondition right) {
-                // Numeric comparisons such as "gt(10)" are always distinct from a "like" condition which only matches strings.
+                // Numeric comparisons such as gt(10) are always distinct from a "like" condition which only matches strings.
                 if (!(right.getValue() instanceof String)) {
                     return true;
                 }
@@ -138,7 +139,7 @@ class DistinctEvaluator implements ConditionVisitor<Condition, Boolean> {
                 }
 
                 // The two are distinct if the "like" conditions prefix can never overlap with the comparison.
-                // For example, "like("ba*")" is distinct from "ge("be")" but not "gt("b"), since "bat" would satisfy both.
+                // For example, like("ba*") is distinct from ge("be") but not gt("b"), since "bat" would satisfy both.
                 String comparisonValue = (String) right.getValue();
                 return prefix.length() >= comparisonValue.length() && !ConditionEvaluator.eval(right, prefix, null);
             }

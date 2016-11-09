@@ -23,8 +23,9 @@ import java.util.Map;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
- * Evaluator for determining if, for two conditions A and B, B is a subset of A if every input for B which evaluates
- * to true also evaluates to true for A.
+ * Evaluator for determining if, for two conditions left and right, left is a subset of right.  This relationship
+ * is true if for every input v for which <code>ConditionEvaluator.evaluate(left, v, intrinsics)</code> returns
+ * true <code>ConditionEvaluator.evaluate(right, v, intrinsics)</code> also returns true.
  *
  * For example:
  *
@@ -157,7 +158,7 @@ public class SubsetEvaluator implements ConditionVisitor<Condition, Boolean> {
         LeftResolvedVisitor<IntrinsicCondition> visitor = new LeftResolvedVisitor<IntrinsicCondition>(left) {
             @Override
             public Boolean visit(IntrinsicCondition right, Void context) {
-                // Example: intrinsic("~table", "value") subset? intrinsic("~table", in(like("v*")))
+                // Example: intrinsic("~table": "value") subset? intrinsic("~table": like("v*"))
                 return _left.getName().equals(right.getName()) &&
                         checkIsSubset(left.getCondition(), right.getCondition());
             }

@@ -37,7 +37,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * This evaluator is only used internally by {@link SubsetEvaluator} and is only implemented to the extent that class
  * requires.  Not every condition has a well-defined inversion with the current set of conditions.  For example,
  * there is no inverse for <code>"constant"</code> or <code>like("prefix:*")</code>.  If there is no well-defined
- * condition which inverts the input condition then this evaluator returns null.
+ * condition which inverts the input condition then this evaluator returns null rather than not(condition).
  */
 class InverseEvaluator implements ConditionVisitor<Void, Condition> {
 
@@ -148,7 +148,7 @@ class InverseEvaluator implements ConditionVisitor<Void, Condition> {
     @Nullable
     private Condition inverseConditions(Collection<Condition> conditions, boolean fromAnd) {
         // Use DeMorgan's law.  In this case allow "not(sub-condition)" for any sub-conditions which do not have an
-        // inverse, leaving future operations to resolve if necessary.
+        // inverse, leaving future operations to handle if necessary.
         List<Condition> inverseConditions = conditions.stream()
                 .map(condition -> Objects.firstNonNull(condition.visit(this, null), Conditions.not(condition)))
                 .collect(Collectors.toList());
@@ -178,7 +178,7 @@ class InverseEvaluator implements ConditionVisitor<Void, Condition> {
         return Conditions.or(conditions);
     }
 
-    // The remaining conditions have no well-defined inverse expressible as a Condition.
+    // The remaining conditions have no well-defined inverse expressible as a Condition other than not(condition).
 
     @Nullable
     @Override
