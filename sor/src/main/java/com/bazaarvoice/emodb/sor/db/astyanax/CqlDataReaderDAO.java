@@ -2,6 +2,7 @@ package com.bazaarvoice.emodb.sor.db.astyanax;
 
 import com.bazaarvoice.emodb.common.api.impl.LimitCounter;
 import com.bazaarvoice.emodb.common.cassandra.CqlDriverConfiguration;
+import com.bazaarvoice.emodb.common.cassandra.cqldriver.AdaptiveResultSet;
 import com.bazaarvoice.emodb.common.uuid.TimeUUIDs;
 import com.bazaarvoice.emodb.sor.api.Change;
 import com.bazaarvoice.emodb.sor.api.Compaction;
@@ -36,14 +37,17 @@ import com.datastax.driver.core.ResultSetFuture;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.Statement;
+import com.datastax.driver.core.exceptions.FrameTooLongException;
+import com.datastax.driver.core.exceptions.ReadTimeoutException;
 import com.datastax.driver.core.querybuilder.QueryBuilder;
 import com.datastax.driver.core.querybuilder.Select;
 import com.datastax.driver.core.utils.MoreFutures;
-import com.google.common.base.Joiner;
+import com.google.common.base.Function;
 import com.google.common.base.Objects;
 import com.google.common.base.Optional;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
+import com.google.common.base.Throwables;
 import com.google.common.collect.AbstractIterator;
 import com.google.common.collect.BoundType;
 import com.google.common.collect.FluentIterable;
@@ -56,8 +60,8 @@ import com.google.common.collect.Multimap;
 import com.google.common.collect.Ordering;
 import com.google.common.collect.PeekingIterator;
 import com.google.common.collect.Range;
-import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
 import com.google.inject.Inject;
 import com.netflix.astyanax.model.ByteBufferRange;
 import com.netflix.astyanax.util.ByteBufferRangeImpl;
@@ -73,7 +77,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 import static com.datastax.driver.core.querybuilder.QueryBuilder.asc;
 import static com.datastax.driver.core.querybuilder.QueryBuilder.desc;
@@ -241,13 +244,12 @@ public class CqlDataReaderDAO implements DataReaderDAO {
         int fetchSize = singleRow ? _driverConfig.getSingleRowFetchSize() : _driverConfig.getMultiRowFetchSize();
         int prefetchLimit = singleRow ? _driverConfig.getSingleRowPrefetchLimit() : _driverConfig.getMultiRowPrefetchLimit();
 
-        statement.setFetchSize(fetchSize);
-
         Session session = placement.getKeyspace().getCqlSession();
         DeltaRowGroupResultSetIterator deltaRowGroupResultSetIterator;
 
         if (async) {
-            ResultSetFuture resultSetFuture = session.executeAsync(statement);
+            ListenableFuture<ResultSet> resultSetFuture = executeQueryAsync(session, statement, fetchSize);
+
             deltaRowGroupResultSetIterator = new DeltaRowGroupResultSetIterator(
                     resultSetFuture, prefetchLimit, placement, statement.getConsistencyLevel());
 
@@ -259,7 +261,7 @@ public class CqlDataReaderDAO implements DataReaderDAO {
             });
         } else {
             try {
-                ResultSet resultSet = session.execute(statement);
+                ResultSet resultSet = executeQuery(session, statement, fetchSize);
                 deltaRowGroupResultSetIterator = new DeltaRowGroupResultSetIterator(
                         resultSet, prefetchLimit, placement, statement.getConsistencyLevel());
             } catch (Throwable t) {
@@ -269,6 +271,49 @@ public class CqlDataReaderDAO implements DataReaderDAO {
         }
 
         return new CachingRowGroupIterator(deltaRowGroupResultSetIterator, _driverConfig.getRecordCacheSize(), _driverConfig.getRecordSoftCacheSize());
+    }
+
+    private ListenableFuture<ResultSet> executeQueryAsync(Session session, Statement statement, int fetchSize) {
+        statement.setFetchSize(fetchSize);
+
+        ResultSetFuture rawFuture = session.executeAsync(statement);
+
+        ListenableFuture<ResultSet> transformedFuture =  Futures.transform(rawFuture, new Function<ResultSet, ResultSet>() {
+            @Override
+            public ResultSet apply(ResultSet resultSet) {
+                return new AdaptiveResultSet(session, resultSet);
+            }
+        });
+
+        return Futures.withFallback(transformedFuture, t -> {
+            _log.error("BJK:  ResultSetFuture failed with throwable of type {}", t.getClass());
+            if ((t instanceof FrameTooLongException || t instanceof ReadTimeoutException) && fetchSize > 1) {
+                // Try again with half the fetch size
+                int reducedFetchSize = fetchSize / 2;
+                _log.error("BJK:  Repeating previous query with fetch size {} due to {}", reducedFetchSize, t.getMessage());
+                return executeQueryAsync(session, statement, reducedFetchSize);
+            }
+            throw Throwables.propagate(t);
+        });
+    }
+
+    private ResultSet executeQuery(Session session, Statement statement, int fetchSize) {
+        while (true) {
+            statement.setFetchSize(fetchSize);
+
+            try {
+                ResultSet resultSet = session.execute(statement);
+                return new AdaptiveResultSet(session, resultSet);
+            } catch (FrameTooLongException | ReadTimeoutException e) {
+                if (fetchSize > 1) {
+                    // Try again with half the fetch size
+                    fetchSize = fetchSize / 2;
+                    _log.error("BJK:  Repeating previous query with fetch size {} due to {}", fetchSize, e.getMessage());
+                } else {
+                    throw e;
+                }
+            }
+        }
     }
 
     /**
@@ -701,7 +746,7 @@ public class CqlDataReaderDAO implements DataReaderDAO {
             _consistency = consistency;
         }
 
-        private DeltaRowGroupResultSetIterator(ResultSetFuture resultSetFuture, int prefetchLimit,
+        private DeltaRowGroupResultSetIterator(ListenableFuture<ResultSet> resultSetFuture, int prefetchLimit,
                                                DeltaPlacement placement, ConsistencyLevel consistency) {
             super(resultSetFuture, prefetchLimit);
             _placement = placement;
