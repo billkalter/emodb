@@ -16,6 +16,7 @@ import com.google.inject.Inject;
 import com.netflix.astyanax.Execution;
 import com.netflix.astyanax.connectionpool.OperationResult;
 import com.netflix.astyanax.connectionpool.exceptions.ConnectionException;
+import com.netflix.astyanax.connectionpool.exceptions.NotFoundException;
 import com.netflix.astyanax.model.Column;
 import com.netflix.astyanax.model.ColumnFamily;
 import com.netflix.astyanax.model.ColumnList;
@@ -70,7 +71,13 @@ public class AstyanaxSubscriptionDAO implements SubscriptionDAO {
 
     @Override
     public OwnedSubscription getSubscription(String subscription) {
-        throw new UnsupportedOperationException();  // CachingSubscriptionDAO should prevent calls to this method.
+        Column<String> column = execute(_keyspace.prepareQuery(CF_SUBSCRIPTION, CL_LOCAL_QUORUM)
+                .getKey(ROW_KEY)
+                .getColumn(subscription));
+        if (column == null) {
+            return null;
+        }
+        return columnToOwnedSubscription(column);
     }
 
     @Timed(name = "bv.emodb.databus.AstyanaxSubscriptionDAO.getAllSubscriptions", absolute = true)
@@ -80,22 +87,29 @@ public class AstyanaxSubscriptionDAO implements SubscriptionDAO {
                 .getKey(ROW_KEY));
         List<OwnedSubscription> subscriptions = Lists.newArrayListWithCapacity(columns.size());
         for (Column<String> column : columns) {
-            String name = column.getName();
-            Map<?, ?> json = JsonHelper.fromJson(column.getStringValue(), Map.class);
-            Condition tableFilter = Conditions.fromString((String) checkNotNull(json.get("filter"), "filter"));
-            Date expiresAt = new Date(((Number) checkNotNull(json.get("expiresAt"), "expiresAt")).longValue());
-            Duration eventTtl = Duration.standardSeconds(((Number) checkNotNull(json.get("eventTtl"), "eventTtl")).intValue());
-            // TODO:  Once API keys are fully integrated enforce non-null
-            String ownerId = (String) json.get("ownerId");
-            subscriptions.add(new DefaultOwnedSubscription(name, tableFilter, expiresAt, eventTtl, ownerId));
+            OwnedSubscription subscription = columnToOwnedSubscription(column);
+            subscriptions.add(subscription);
         }
         return subscriptions;
+    }
+
+    private OwnedSubscription columnToOwnedSubscription(Column<String> column) {
+        String name = column.getName();
+        Map<?, ?> json = JsonHelper.fromJson(column.getStringValue(), Map.class);
+        Condition tableFilter = Conditions.fromString((String) checkNotNull(json.get("filter"), "filter"));
+        Date expiresAt = new Date(((Number) checkNotNull(json.get("expiresAt"), "expiresAt")).longValue());
+        Duration eventTtl = Duration.standardSeconds(((Number) checkNotNull(json.get("eventTtl"), "eventTtl")).intValue());
+        // TODO:  Once API keys are fully integrated enforce non-null
+        String ownerId = (String) json.get("ownerId");
+        return new DefaultOwnedSubscription(name, tableFilter, expiresAt, eventTtl, ownerId);
     }
 
     private <R> R execute(Execution<R> execution) {
         OperationResult<R> operationResult;
         try {
             operationResult = execution.execute();
+        } catch (NotFoundException e) {
+            return null;
         } catch (ConnectionException e) {
             throw Throwables.propagate(e);
         }
