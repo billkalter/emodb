@@ -9,19 +9,21 @@ import com.bazaarvoice.emodb.databus.db.SubscriptionDAO;
 import com.bazaarvoice.emodb.databus.model.OwnedSubscription;
 import com.bazaarvoice.emodb.sor.condition.Condition;
 import com.google.common.base.Function;
+import com.google.common.base.Ticker;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
-import com.google.common.cache.RemovalCause;
 import com.google.common.collect.Maps;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.inject.Inject;
 import org.joda.time.Duration;
+import org.slf4j.LoggerFactory;
 
 import java.time.Clock;
 import java.util.Collection;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -38,11 +40,11 @@ public class CachingSubscriptionDAO implements SubscriptionDAO {
 
     private final SubscriptionDAO _delegate;
     private final LoadingCache<String, Map<String, OwnedSubscription>> _cache;
+    private final LoadingCache<String, Optional<OwnedSubscription>> _refreshCache;
+    private final ListeningExecutorService _refreshService;
     private final CacheHandle _cacheHandle;
-    private final Clock _clock;
     private final ReentrantLock _refreshLock = new ReentrantLock();
-    private volatile long _nextAsyncRefreshRequestTime;
-
+    private volatile ListenableFuture<?> _asyncRefreshFuture = null;
 
     @Inject
     public CachingSubscriptionDAO(@CachingSubscriptionDAODelegate SubscriptionDAO delegate,
@@ -50,24 +52,15 @@ public class CachingSubscriptionDAO implements SubscriptionDAO {
                                   @CachingSubscriptionDAOExecutorService ListeningExecutorService refreshService,
                                   Clock clock) {
         _delegate = checkNotNull(delegate, "delegate");
-        _clock = checkNotNull(clock, "clock");
+        _refreshService = checkNotNull(refreshService, "refreshService");
+
+        Ticker ticker = ClockTicker.getTicker(clock);
 
         // The subscription cache has only a single value.  Use it for (a) expiration, (b) dropwizard cache clearing.
         _cache = CacheBuilder.newBuilder().
                 refreshAfterWrite(10, TimeUnit.MINUTES).
-                ticker(ClockTicker.getTicker(clock)).
+                ticker(ticker).
                 recordStats().
-                removalListener(notification -> {
-                    // If the removal is explicit due to invalidation then allow an immediate asynchronous refresh.
-                    if (notification.getCause() == RemovalCause.EXPLICIT) {
-                        _refreshLock.lock();
-                        try {
-                            _nextAsyncRefreshRequestTime = _clock.millis();
-                        } finally {
-                            _refreshLock.unlock();
-                        }
-                    }
-                }).
                 build(new CacheLoader<String, Map<String, OwnedSubscription>>() {
                     /**
                      * Synchronously load the subscription map.  This is called to initialize the subscriptions or on
@@ -91,6 +84,23 @@ public class CachingSubscriptionDAO implements SubscriptionDAO {
                     }
                 });
         _cacheHandle = cacheRegistry.register("subscriptions", _cache, true);
+
+        // Depending on the number of subscriptions the time to reload them all can take hundreds of milliseconds.
+        // This means that the time to load a single subscription in getSubscription() may unnecessarily block for that
+        // time.  The following will cache single-subscriptions short-term while the full cache is replenished
+        // asynchronously.
+
+        _refreshCache = CacheBuilder.newBuilder().
+                expireAfterWrite(1, TimeUnit.SECONDS).
+                softValues().
+                ticker(ticker).
+                build(new CacheLoader<String, Optional<OwnedSubscription>>() {
+                    @Override
+                    public Optional<OwnedSubscription> load(String subscription) throws Exception {
+                        // Caches don't support null values, so use empty Optionals for nulls
+                        return Optional.ofNullable(_delegate.getSubscription(subscription));
+                    }
+                });
     }
 
     private Map<String, OwnedSubscription> indexByName(Collection<OwnedSubscription> subscriptions) {
@@ -132,22 +142,33 @@ public class CachingSubscriptionDAO implements SubscriptionDAO {
         refreshSubscriptionsAsync();
 
         // While until the refresh completes return the subscription from the delegate.
-        return _delegate.getSubscription(subscription);
+        return _refreshCache.getUnchecked(subscription).orElse(null);
     }
 
     private void refreshSubscriptionsAsync() {
         // Do not refresh again if another refresh is underway
-        if (_clock.millis() >= _nextAsyncRefreshRequestTime) {
+        if (_asyncRefreshFuture == null) {
             // Do not block acquiring the refresh lock.  If we don't get it that only means another thread is already
             // doing the same work this thread would be doing.
             if (_refreshLock.tryLock()) {
                 try {
-                    long now = _clock.millis();
-                    if (now > _nextAsyncRefreshRequestTime) {
-                        // Allow 10 seconds for this refresh call to finish loading.  Even if it takes more than that
-                        // the cache will only refresh if another thread isn't currently refreshing.
-                        _nextAsyncRefreshRequestTime = now + TimeUnit.SECONDS.toMillis(10);
-                        _cache.refresh(SUBSCRIPTIONS);
+                    if (_asyncRefreshFuture == null) {
+                        // _cache.refresh(SUBSCRIPTIONS) only runs asynchronously if the current value exists and
+                        // is being replaced.  In this case there is no current value, either because it has never
+                        // been loaded or it was invalidated.  Therefore we need to explicitly refresh the cache
+                        // asynchronously, otherwise the refresh call would block synchronously.
+                        _asyncRefreshFuture = _refreshService.submit(() -> {
+                            try {
+                                _cache.get(SUBSCRIPTIONS);
+                            } catch (Throwable t) {
+                                // Whatever the problem was it'll be caught and propagated on a future synchronous call
+                                // to get subscriptions if it wasn't transient, so just log this one.
+                                LoggerFactory.getLogger(getClass()).debug("Failed to asynchronously update all subscriptions", t.getCause());
+                            } finally {
+                                // Reset the future to allow more refreshes if necessary
+                                _asyncRefreshFuture = null;
+                            }
+                        });
                     }
                 } finally {
                     _refreshLock.unlock();
