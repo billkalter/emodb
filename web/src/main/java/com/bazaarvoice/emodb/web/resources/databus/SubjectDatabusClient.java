@@ -13,14 +13,16 @@ import static com.google.common.base.Preconditions.checkNotNull;
 public class SubjectDatabusClient extends AbstractSubjectDatabus {
 
     private final AuthDatabus _authDatabus;
+    private final DatabusAuthenticator _authenticator;
 
     public SubjectDatabusClient(AuthDatabus authDatabus) {
         _authDatabus = checkNotNull(authDatabus, "authDatabus");
+        _authenticator = DatabusAuthenticator.proxied(_authDatabus);
     }
 
     @Override
     protected Databus databus(Subject subject) {
-        return DatabusAuthenticator.proxied(_authDatabus).usingCredentials(subject.getId());
+        return _authenticator.usingCredentials(subject.getId());
     }
 
     AuthDatabus getClient() {
