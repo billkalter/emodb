@@ -29,7 +29,7 @@ import java.util.List;
  *         API key.</li>
  * </ul>
  *
- * By using the subject as the authenticator local and implementations can forward the request using the appropriate
+ * By using the subject as the authenticator local and remote implementations can forward the request using the appropriate
  * subject identifier.
  *
  * This method should exactly mirror Databus except with added subject in each call.
