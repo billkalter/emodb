@@ -17,6 +17,11 @@ import java.util.Date;
 import java.util.Iterator;
 import java.util.List;
 
+/**
+ * Base implementation for {@link SubjectDatabus}.
+ *
+ * Note: The {@link PartitionKey} annotations must match those from {@link com.bazaarvoice.emodb.databus.client.DatabusClient}.
+ */
 public abstract class AbstractSubjectDatabus implements SubjectDatabus {
 
     abstract protected Databus databus(Subject subject);

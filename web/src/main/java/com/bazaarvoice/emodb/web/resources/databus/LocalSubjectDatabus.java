@@ -6,6 +6,9 @@ import com.bazaarvoice.emodb.databus.core.DatabusFactory;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+/**
+ * SubjectDatabus implementation which forwards requests to a local Databus using the internal ID as the authenticator.
+ */
 public class LocalSubjectDatabus extends AbstractSubjectDatabus {
 
     private final DatabusFactory _databusFactory;

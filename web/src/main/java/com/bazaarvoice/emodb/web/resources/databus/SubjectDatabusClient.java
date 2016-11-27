@@ -7,6 +7,9 @@ import com.bazaarvoice.emodb.databus.client.DatabusAuthenticator;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+/**
+ * SubjectDatabus implementation which forwards calls to an {@link AuthDatabus} using the API key as the authenticator.
+ */
 public class SubjectDatabusClient extends AbstractSubjectDatabus {
 
     private final AuthDatabus _authDatabus;

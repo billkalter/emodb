@@ -16,6 +16,24 @@ import java.util.Iterator;
 import java.util.List;
 
 /**
+ * Interface for providing owner-aware access to {@link com.bazaarvoice.emodb.databus.api.Databus} using an authenticated
+ * subject.  Similar to {@link com.bazaarvoice.emodb.databus.api.AuthDatabus} except the authentication credential is
+ * the subject and not an API key.  This is used to support the following functionality required by
+ * {@link DatabusResource1}:
+ *
+ * <ul>
+ *     <li>If the local server is the partition for the subscription then requests should be forwarded to a local
+ *         databus implementation.  In this case the authentication credential is the subject's internal ID.</li>
+ *     <li>If a remote server is the partition for the subscription then requests should be forwarded to that server
+ *         using its databus REST API.  In this case the authentication credential is the subject's ID, which is the
+ *         API key.</li>
+ * </ul>
+ *
+ * By using the subject as the authenticator local and implementations can forward the request using the appropriate
+ * subject identifier.
+ *
+ * This method should exactly mirror Databus except with added subject in each call.
+ *
  * @see com.bazaarvoice.emodb.databus.api.Databus
  */
 public interface SubjectDatabus {
