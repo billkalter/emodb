@@ -7,6 +7,7 @@ import com.bazaarvoice.emodb.databus.api.Subscription;
 import com.bazaarvoice.emodb.databus.db.SubscriptionDAO;
 import com.bazaarvoice.emodb.databus.model.OwnedSubscription;
 import com.bazaarvoice.emodb.sor.condition.Conditions;
+import com.codahale.metrics.MetricRegistry;
 import com.google.common.cache.Cache;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ListeningExecutorService;
@@ -69,7 +70,7 @@ public class CachingSubscriptionDAOTest {
         _cacheHandle = mock(CacheHandle.class);
         when(cacheRegistry.register(eq("subscriptions"), any(Cache.class), eq(true))).thenReturn(_cacheHandle);
 
-        _cachingSubscriptionDAO = new CachingSubscriptionDAO(_delegate, cacheRegistry, _service, clock);
+        _cachingSubscriptionDAO = new CachingSubscriptionDAO(_delegate, cacheRegistry, _service, new MetricRegistry(), clock);
 
         ArgumentCaptor<Cache> cacheCaptor = ArgumentCaptor.forClass(Cache.class);
         verify(cacheRegistry).register(eq("subscriptions"), cacheCaptor.capture(), eq(true));
@@ -216,4 +217,5 @@ public class CachingSubscriptionDAOTest {
         verify(_cacheHandle).invalidate(InvalidationScope.DATA_CENTER, "subscriptions");
     }
 
+    // TODO:  BJK:  Add tests for renewing exisitng subscriptions only invalidating when necessary
 }

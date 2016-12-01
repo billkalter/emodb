@@ -23,6 +23,7 @@ import com.netflix.astyanax.model.ColumnList;
 import com.netflix.astyanax.serializers.StringSerializer;
 import org.joda.time.Duration;
 
+import java.time.Clock;
 import java.util.Collection;
 import java.util.Date;
 import java.util.List;
@@ -42,10 +43,12 @@ public class AstyanaxSubscriptionDAO implements SubscriptionDAO {
                     StringSerializer.get()); // column name serializer
 
     private final CassandraKeyspace _keyspace;
+    private final Clock _clock;
 
     @Inject
-    public AstyanaxSubscriptionDAO(CassandraKeyspace keyspace) {
+    public AstyanaxSubscriptionDAO(CassandraKeyspace keyspace, Clock clock) {
         _keyspace = checkNotNull(keyspace, "keyspace");
+        _clock = checkNotNull(clock, "clock");
     }
 
     @Timed(name = "bv.emodb.databus.AstyanaxSubscriptionDAO.insertSubscription", absolute = true)
@@ -54,7 +57,7 @@ public class AstyanaxSubscriptionDAO implements SubscriptionDAO {
                                    Duration subscriptionTtl, Duration eventTtl) {
         Map<String, Object> json = ImmutableMap.<String, Object>builder()
                 .put("filter", tableFilter.toString())
-                .put("expiresAt", System.currentTimeMillis() + subscriptionTtl.getMillis())
+                .put("expiresAt", _clock.millis() + subscriptionTtl.getMillis())
                 .put("eventTtl", Ttls.toSeconds(eventTtl, 1, Integer.MAX_VALUE))
                 .put("ownerId", ownerId)
                 .build();
