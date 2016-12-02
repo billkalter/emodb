@@ -9,9 +9,10 @@ import com.bazaarvoice.emodb.databus.model.OwnedSubscription;
 import com.bazaarvoice.emodb.sor.condition.Condition;
 import com.bazaarvoice.emodb.sor.condition.Conditions;
 import com.codahale.metrics.annotation.Timed;
+import com.datastax.driver.core.ConsistencyLevel;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
+import com.google.common.collect.Iterables;
 import com.google.inject.Inject;
 import com.netflix.astyanax.Execution;
 import com.netflix.astyanax.connectionpool.OperationResult;
@@ -24,11 +25,10 @@ import com.netflix.astyanax.serializers.StringSerializer;
 import org.joda.time.Duration;
 
 import java.time.Clock;
-import java.util.Collection;
 import java.util.Date;
-import java.util.List;
 import java.util.Map;
 
+import static com.datastax.driver.core.querybuilder.QueryBuilder.select;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.netflix.astyanax.model.ConsistencyLevel.CL_LOCAL_QUORUM;
 
@@ -37,13 +37,15 @@ public class AstyanaxSubscriptionDAO implements SubscriptionDAO {
     // all subscriptions are stored as columns of a single row
     private static final String ROW_KEY = "subscriptions";
 
+    private static final String CF_NAME = "subscription";
     private static final ColumnFamily<String, String> CF_SUBSCRIPTION =
-            new ColumnFamily<>("subscription",
+            new ColumnFamily<>(CF_NAME,
                     StringSerializer.get(),  // key serializer
                     StringSerializer.get()); // column name serializer
 
     private final CassandraKeyspace _keyspace;
     private final Clock _clock;
+    private String _subscriptionNameColumn;
 
     @Inject
     public AstyanaxSubscriptionDAO(CassandraKeyspace keyspace, Clock clock) {
@@ -85,15 +87,11 @@ public class AstyanaxSubscriptionDAO implements SubscriptionDAO {
 
     @Timed(name = "bv.emodb.databus.AstyanaxSubscriptionDAO.getAllSubscriptions", absolute = true)
     @Override
-    public Collection<OwnedSubscription> getAllSubscriptions() {
+    public Iterable<OwnedSubscription> getAllSubscriptions() {
         ColumnList<String> columns = execute(_keyspace.prepareQuery(CF_SUBSCRIPTION, CL_LOCAL_QUORUM)
                 .getKey(ROW_KEY));
-        List<OwnedSubscription> subscriptions = Lists.newArrayListWithCapacity(columns.size());
-        for (Column<String> column : columns) {
-            OwnedSubscription subscription = columnToOwnedSubscription(column);
-            subscriptions.add(subscription);
-        }
-        return subscriptions;
+
+        return Iterables.transform(columns, column -> columnToOwnedSubscription(column));
     }
 
     private OwnedSubscription columnToOwnedSubscription(Column<String> column) {
@@ -105,6 +103,26 @@ public class AstyanaxSubscriptionDAO implements SubscriptionDAO {
         // TODO:  Once API keys are fully integrated enforce non-null
         String ownerId = (String) json.get("ownerId");
         return new DefaultOwnedSubscription(name, tableFilter, expiresAt, eventTtl, ownerId);
+    }
+
+    @Override
+    public Iterable<String> getAllSubscriptionNames() {
+        // Don't need any actual column content, just the names
+
+        if (_subscriptionNameColumn == null) {
+            // Because of the way the subscription table was generated the CQL column names may be non-standard.
+            // However, the second column of the primary key contains the subscription name.
+            _subscriptionNameColumn = _keyspace.getKeyspaceMetadata().getTable(CF_NAME)
+                    .getPrimaryKey().get(1).getName();
+        }
+
+        com.datastax.driver.core.ResultSet resultSet = _keyspace.getCqlSession().execute(
+                select(_subscriptionNameColumn)
+                        .from(CF_NAME)
+                        .setFetchSize(200)
+                        .setConsistencyLevel(ConsistencyLevel.LOCAL_QUORUM));
+
+        return Iterables.transform(resultSet, row -> row.getString(0));
     }
 
     private <R> R execute(Execution<R> execution) {

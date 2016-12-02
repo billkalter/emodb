@@ -4,12 +4,12 @@ import com.bazaarvoice.emodb.databus.db.SubscriptionDAO;
 import com.bazaarvoice.emodb.databus.model.DefaultOwnedSubscription;
 import com.bazaarvoice.emodb.databus.model.OwnedSubscription;
 import com.bazaarvoice.emodb.sor.condition.Condition;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
 import org.joda.time.Duration;
 
 import javax.annotation.Nullable;
 import java.time.Clock;
-import java.util.Collection;
 import java.util.Date;
 import java.util.concurrent.ConcurrentMap;
 import java.util.stream.Collectors;
@@ -53,9 +53,14 @@ public class InMemorySubscriptionDAO implements SubscriptionDAO {
     }
 
     @Override
-    public Collection<OwnedSubscription> getAllSubscriptions() {
+    public Iterable<OwnedSubscription> getAllSubscriptions() {
         return _subscriptions.values().stream()
                 .filter(subscription -> _clock.millis() < subscription.getExpiresAt().getTime())
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    public Iterable<String> getAllSubscriptionNames() {
+        return Iterables.transform(getAllSubscriptions(), OwnedSubscription::getName);
     }
 }

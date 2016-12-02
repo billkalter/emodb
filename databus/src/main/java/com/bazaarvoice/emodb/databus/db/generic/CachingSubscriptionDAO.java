@@ -4,36 +4,30 @@ import com.bazaarvoice.emodb.cachemgr.api.CacheHandle;
 import com.bazaarvoice.emodb.cachemgr.api.CacheRegistry;
 import com.bazaarvoice.emodb.cachemgr.api.InvalidationScope;
 import com.bazaarvoice.emodb.common.dropwizard.time.ClockTicker;
-import com.bazaarvoice.emodb.databus.api.Subscription;
 import com.bazaarvoice.emodb.databus.db.SubscriptionDAO;
 import com.bazaarvoice.emodb.databus.model.OwnedSubscription;
 import com.bazaarvoice.emodb.sor.condition.Condition;
 import com.codahale.metrics.Meter;
 import com.codahale.metrics.MetricRegistry;
-import com.google.common.base.Function;
-import com.google.common.base.Objects;
+import com.google.common.base.Throwables;
 import com.google.common.base.Ticker;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.cache.RemovalCause;
 import com.google.common.cache.RemovalListener;
-import com.google.common.collect.Maps;
+import com.google.common.collect.Iterables;
+import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.inject.Inject;
-import org.joda.time.DateTime;
 import org.joda.time.Duration;
-import org.slf4j.LoggerFactory;
 
-import javax.annotation.Nullable;
 import java.time.Clock;
-import java.util.Collection;
-import java.util.Date;
-import java.util.Map;
-import java.util.Optional;
+import java.util.List;
+import java.util.NoSuchElementException;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReentrantLock;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -47,15 +41,11 @@ public class CachingSubscriptionDAO implements SubscriptionDAO {
     private static final String SUBSCRIPTIONS = "subscriptions";
 
     private final SubscriptionDAO _delegate;
-    private final LoadingCache<String, Map<String, OwnedSubscription>> _cache;
-    private final LoadingCache<String, Optional<OwnedSubscription>> _refreshCache;
+    private final LoadingCache<String, OwnedSubscription> _subscriptionCache;
+    private final LoadingCache<String, List<OwnedSubscription>> _allSubscriptionsCache;
     private final ListeningExecutorService _refreshService;
-    private final CacheHandle _cacheHandle;
-    private final Clock _clock;
+    private final CacheHandle _subscriptionCacheHandle;
     private final Meter _invalidationEventMeter;
-    private final ReentrantLock _refreshLock = new ReentrantLock();
-    private volatile ListenableFuture<?> _asyncRefreshFuture = null;
-    private volatile long _lastInvalidationTimestamp;
 
     @Inject
     public CachingSubscriptionDAO(@CachingSubscriptionDAODelegate SubscriptionDAO delegate,
@@ -64,196 +54,126 @@ public class CachingSubscriptionDAO implements SubscriptionDAO {
                                   MetricRegistry metricRegistry, Clock clock) {
         _delegate = checkNotNull(delegate, "delegate");
         _refreshService = checkNotNull(refreshService, "refreshService");
-        _clock = checkNotNull(clock, "clock");
-        _lastInvalidationTimestamp = clock.millis();
 
         Ticker ticker = ClockTicker.getTicker(clock);
 
-        // The subscription cache has only a single value.  Use it for (a) expiration, (b) dropwizard cache clearing.
-        _cache = CacheBuilder.newBuilder().
-                refreshAfterWrite(10, TimeUnit.MINUTES).
-                ticker(ticker).
-                recordStats().
-                removalListener((RemovalListener<String, Map<String, OwnedSubscription>>) notification -> {
+        // The all subscription cache is only used to track the set of all subscriptions and only has a single value.
+        _allSubscriptionsCache = CacheBuilder.newBuilder()
+                .refreshAfterWrite(10, TimeUnit.MINUTES)
+                .ticker(ticker)
+                .recordStats()
+                .build(new CacheLoader<String, List<OwnedSubscription>>() {
+                    @Override
+                    public List<OwnedSubscription> load(String key) throws Exception {
+                        Iterable<String> subscriptionNames = _delegate.getAllSubscriptionNames();
+                        List<OwnedSubscription> subscriptions = Lists.newArrayList();
+
+                        for (String name : subscriptionNames) {
+                            OwnedSubscription subscription = getSubscription(name);
+                            if (subscription != null) {
+                                subscriptions.add(subscription);
+                            }
+                        }
+
+                        return subscriptions;
+                    }
+
+                });
+
+        _subscriptionCache = CacheBuilder.newBuilder()
+                .refreshAfterWrite(10, TimeUnit.MINUTES)
+                .ticker(ticker)
+                .removalListener((RemovalListener<String, OwnedSubscription>) notification -> {
+                    // If the subscription was removed due to an explicit invalidation then also invalidate
+                    // the list of all subscriptions.
                     if (notification.getCause() == RemovalCause.EXPLICIT) {
-                        // Subscriptions were explicitly removed due to an invalidation event
-                        _lastInvalidationTimestamp = _clock.millis();
+                        _allSubscriptionsCache.invalidate(SUBSCRIPTIONS);
                     }
-                }).
-                build(new CacheLoader<String, Map<String, OwnedSubscription>>() {
-                    /**
-                     * Synchronously load the subscription map.  This is called to initialize the subscriptions or on
-                     * the first {@link LoadingCache#getUnchecked(Object)} call after an invalidation event.
-                     */
+                })
+                .build(new CacheLoader<String, OwnedSubscription>() {
                     @Override
-                    public Map<String, OwnedSubscription> load(String ignored) throws Exception {
-                        return indexByName(_delegate.getAllSubscriptions());
+                    public OwnedSubscription load(String subscription) throws Exception {
+                        OwnedSubscription ownedSubscription = _delegate.getSubscription(subscription);
+                        if (ownedSubscription == null) {
+                            throw new NoSuchElementException(subscription);
+                        }
+                        return ownedSubscription;
                     }
 
                     /**
-                     * Override to allow background refreshes when either {@link CacheBuilder#refreshAfterWrite(long, TimeUnit)}
-                     * expires or {@link LoadingCache#refresh(Object)} is called.  While refreshing asynchronously the
-                     * currently cached subscription map will continue to be served without blocking.  The implementation
-                     * defers to {@link #load(String)} but executes it in another thread.
+                     * When the cached value is reloaded due to {@link CacheBuilder#refreshAfterWrite(long, TimeUnit)}
+                     * having expired reload the value asynchronously.
                      */
                     @Override
-                    public ListenableFuture<Map<String, OwnedSubscription>> reload(String key, Map<String, OwnedSubscription> oldValue)
+                    public ListenableFuture<OwnedSubscription> reload(String key, OwnedSubscription oldValue)
                             throws Exception {
-                        return refreshService.submit(() -> load(key));
+                        return _refreshService.submit(() -> load(key));
                     }
                 });
-        _cacheHandle = cacheRegistry.register("subscriptions", _cache, true);
 
-        // Depending on the number of subscriptions the time to reload them all can take hundreds of milliseconds.
-        // This means that the time to load a single subscription in getSubscription() may unnecessarily block for that
-        // time.  The following will cache single-subscriptions short-term while the full cache is replenished
-        // asynchronously.
-
-        _refreshCache = CacheBuilder.newBuilder().
-                expireAfterWrite(1, TimeUnit.SECONDS).
-                softValues().
-                ticker(ticker).
-                build(new CacheLoader<String, Optional<OwnedSubscription>>() {
-                    @Override
-                    public Optional<OwnedSubscription> load(String subscription) throws Exception {
-                        // Caches don't support null values, so use empty Optionals for nulls
-                        return Optional.ofNullable(_delegate.getSubscription(subscription));
-                    }
-                });
+        _subscriptionCacheHandle = cacheRegistry.register("subscriptionsByName", _subscriptionCache, true);
 
         _invalidationEventMeter = metricRegistry.meter(
                 MetricRegistry.name("bv.emodb.databus", "CachingSubscriptionDAO", "invalidation-events"));
     }
 
-    private Map<String, OwnedSubscription> indexByName(Collection<OwnedSubscription> subscriptions) {
-        return Maps.uniqueIndex(subscriptions, new Function<Subscription, String>() {
-            @Override
-            public String apply(Subscription subscription) {
-                return subscription.getName();
-            }
-        });
-    }
-
     @Override
     public void insertSubscription(String ownerId, String subscription, Condition tableFilter, Duration subscriptionTtl,
                                    Duration eventTtl) {
-        // Get the cached subscription, if it exists.  Don't call getSubscription() because that may return a cached
-        // value from _refreshCache and we need to be sure the existing subscription is current as of existingReadTimestamp.
-        long existingReadTimestamp = _clock.millis();
-        OwnedSubscription existing;
-        Map<String, OwnedSubscription> subscriptions = _cache.getIfPresent(SUBSCRIPTIONS);
-        if (subscriptions != null) {
-            existing = subscriptions.get(subscription);
-        } else {
-            existing = _delegate.getSubscription(subscription);
-        }
-
         _delegate.insertSubscription(ownerId, subscription, tableFilter, subscriptionTtl, eventTtl);
 
-        if (shouldInvalidateAfterInsert(existing, existingReadTimestamp, tableFilter, subscriptionTtl, eventTtl)) {
-            // Synchronously tell every other server in the cluster to forget what it has cached about subscriptions.
-            _invalidationEventMeter.mark();
-            _cacheHandle.invalidate(InvalidationScope.DATA_CENTER, SUBSCRIPTIONS);
-        }
-    }
-
-    private boolean shouldInvalidateAfterInsert(@Nullable OwnedSubscription existing, long existingReadTimestamp,
-                                                Condition tableFilter, Duration subscriptionTtl, Duration eventTtl) {
-        if (existing == null) {
-            // This is a new subscription so we must invalidate to force a reload
-            return true;
-        }
-
-        // If there has been an invalidation event since the existing subscription was read then its state may be out
-        // of sync, so we must invalidate to avoid an inconsistent cache state.
-        if (existingReadTimestamp < _lastInvalidationTimestamp) {
-            return true;
-        }
-
-        // If the filter or event TTL changed the the update must be propagated immediately.
-        if (!Objects.equal(existing.getEventTtl(), eventTtl) || !Objects.equal(existing.getTableFilter(), tableFilter)) {
-            return true;
-        }
-
-        // All subscriptions get refreshed every 10 minutes, so if the subscription TTL doesn't affect whether it expires
-        // in the next 10 minutes then don't invalidate all subscriptions.  Since the cache is reloaded asynchronously
-        // use 11 minutes to provide ample reload time.
-        if (subscriptionTtl.isShorterThan(Duration.standardMinutes(10)) ||
-                existing.getExpiresAt().before(new DateTime(_clock.millis()).plusMinutes(11).toDate())) {
-            return true;
-        }
-
-        // At this point the cached view of the subscription is accurate enough for use until the cache is refreshed
-        // in no later than 10 minutes.
-        return false;
+        // Invalidate this subscription.  No need to invalidate the list of all subscriptions since this will happen
+        // naturally in _subscriptionCache's removal listener.
+        invalidateSubscription(subscription);
     }
 
     @Override
     public void deleteSubscription(String subscription) {
         _delegate.deleteSubscription(subscription);
 
-        // Synchronously tell every other server in the cluster to forget what it has cached about subscriptions.
-        _cacheHandle.invalidate(InvalidationScope.DATA_CENTER, SUBSCRIPTIONS);
+        // Synchronously tell every other server in the cluster to forget what it has cached about the subscription.
+        invalidateSubscription(subscription);
+    }
+
+    private void invalidateSubscription(String subscription) {
+        _invalidationEventMeter.mark();
+        _subscriptionCacheHandle.invalidate(InvalidationScope.DATA_CENTER, subscription);
     }
 
     @Override
     public OwnedSubscription getSubscription(String subscription) {
-        // Do not block reloading all subscriptions to only return a single subscription.  This should only
-        // happen while the subscriptions are being fully reloaded following an invalidation event.
-        Map<String, OwnedSubscription> subscriptions = _cache.getIfPresent(SUBSCRIPTIONS);
-        if (subscriptions != null) {
-            OwnedSubscription ownedSubscription = subscriptions.get(subscription);
-            // If the expiration date is in the past then we need to go to the delegate to ensure it still exists.
-            // This can happen if the subscription expired but no subscription reads occurred in over 10 minutes,
-            // since the cache will return a dirty value while the subscription cache is updated asynchronously.
-            // This scenario is pretty unlikely but should be handled properly just the same.
-            // TODO:  BJK:  Make sure there is a unit test specifically for this scenario
-            if (ownedSubscription == null || ownedSubscription.getExpiresAt().getTime() > _clock.millis()) {
-                return ownedSubscription;
-            }
+        // Try to load the subscription without forcing a synchronous reload.  This will return null only if it is the
+        // first time the subscription has been loaded or if it has been invalidated.  The returned subscription may
+        // be dirty from the cache's perspective, but the cache handler will have invalidated the cached value if it
+        // were changed -- the reload is only used as a failsafe.  If the value is dirty the cache will asynchronously
+        // reload it in the background.
+
+        OwnedSubscription ownedSubscription = _subscriptionCache.getIfPresent(subscription);
+        if (ownedSubscription != null) {
+            return ownedSubscription;
         }
 
-        // Spawn an asynchronous refresh if one has not already been requested recently
-        refreshSubscriptionsAsync();
-
-        // Until the refresh completes return the subscription from the delegate.
-        return _refreshCache.getUnchecked(subscription).orElse(null);
-    }
-
-    private void refreshSubscriptionsAsync() {
-        // Do not refresh again if another refresh is underway
-        if (_asyncRefreshFuture == null) {
-            // Do not block acquiring the refresh lock.  If we don't get it that only means another thread is already
-            // doing the same work this thread would be doing.
-            if (_refreshLock.tryLock()) {
-                try {
-                    if (_asyncRefreshFuture == null) {
-                        // _cache.refresh(SUBSCRIPTIONS) only runs asynchronously if the current value exists and
-                        // is being replaced.  In this case there is no current value, either because it has never
-                        // been loaded or it was invalidated.  Therefore we need to explicitly refresh the cache
-                        // asynchronously, otherwise the refresh call would block synchronously.
-                        _asyncRefreshFuture = _refreshService.submit(() -> {
-                            try {
-                                _cache.get(SUBSCRIPTIONS);
-                            } catch (Throwable t) {
-                                // Whatever the problem was it'll be caught and propagated on a future synchronous call
-                                // to get subscriptions if it wasn't transient, so just log this one.
-                                LoggerFactory.getLogger(getClass()).debug("Failed to asynchronously update all subscriptions", t.getCause());
-                            } finally {
-                                // Reset the future to allow more refreshes if necessary
-                                _asyncRefreshFuture = null;
-                            }
-                        });
-                    }
-                } finally {
-                    _refreshLock.unlock();
-                }
+        // This time call get() to force the value to load, possibly synchronously.  This will also cause the value
+        // to be cached.
+        try {
+            return _subscriptionCache.get(subscription);
+        } catch (ExecutionException e) {
+            // Loading caches cannot store nulls.  If the subscription did not exist the loader would have thrown
+            // NoSuchElementException.  Check if that is the case, otherwise propagate the exception.
+            if (e.getCause() instanceof NoSuchElementException) {
+                return null;
             }
+            throw Throwables.propagate(e);
         }
     }
 
     @Override
-    public Collection<OwnedSubscription> getAllSubscriptions() {
-        return _cache.getUnchecked(SUBSCRIPTIONS).values();
+    public Iterable<OwnedSubscription> getAllSubscriptions() {
+        return _allSubscriptionsCache.getUnchecked(SUBSCRIPTIONS);
+    }
+
+    @Override
+    public Iterable<String> getAllSubscriptionNames() {
+        return Iterables.transform(getAllSubscriptions(), OwnedSubscription::getName);
     }
 }
