@@ -5,11 +5,12 @@ import com.bazaarvoice.emodb.cachemgr.api.CacheRegistry;
 import com.bazaarvoice.emodb.cachemgr.api.InvalidationScope;
 import com.bazaarvoice.emodb.common.dropwizard.time.ClockTicker;
 import com.bazaarvoice.emodb.databus.db.SubscriptionDAO;
+import com.bazaarvoice.emodb.databus.model.DefaultOwnedSubscription;
 import com.bazaarvoice.emodb.databus.model.OwnedSubscription;
 import com.bazaarvoice.emodb.sor.condition.Condition;
+import com.bazaarvoice.emodb.sor.condition.Conditions;
 import com.codahale.metrics.Meter;
 import com.codahale.metrics.MetricRegistry;
-import com.google.common.base.Throwables;
 import com.google.common.base.Ticker;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
@@ -24,9 +25,8 @@ import com.google.inject.Inject;
 import org.joda.time.Duration;
 
 import java.time.Clock;
+import java.util.Date;
 import java.util.List;
-import java.util.NoSuchElementException;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -39,6 +39,10 @@ import static com.google.common.base.Preconditions.checkNotNull;
 public class CachingSubscriptionDAO implements SubscriptionDAO {
 
     private static final String SUBSCRIPTIONS = "subscriptions";
+
+    // Loading cache cannot have null values, so use a single dummy value as a stand-in when a subscription does not exist.
+    private static final OwnedSubscription NULL_SUBSCRIPTION =
+            new DefaultOwnedSubscription("__null", Conditions.alwaysFalse(), new Date(0), Duration.ZERO, "__null");
 
     private final SubscriptionDAO _delegate;
     private final LoadingCache<String, OwnedSubscription> _subscriptionCache;
@@ -86,7 +90,7 @@ public class CachingSubscriptionDAO implements SubscriptionDAO {
                 .removalListener((RemovalListener<String, OwnedSubscription>) notification -> {
                     // If the subscription was removed due to an explicit invalidation then also invalidate
                     // the list of all subscriptions.
-                    if (notification.getCause() == RemovalCause.EXPLICIT) {
+                    if (notification.getCause() == RemovalCause.EXPLICIT && notification.getValue() != NULL_SUBSCRIPTION) {
                         _allSubscriptionsCache.invalidate(SUBSCRIPTIONS);
                     }
                 })
@@ -95,7 +99,8 @@ public class CachingSubscriptionDAO implements SubscriptionDAO {
                     public OwnedSubscription load(String subscription) throws Exception {
                         OwnedSubscription ownedSubscription = _delegate.getSubscription(subscription);
                         if (ownedSubscription == null) {
-                            throw new NoSuchElementException(subscription);
+                            // Can't cache null, use special null value
+                            ownedSubscription = NULL_SUBSCRIPTION;
                         }
                         return ownedSubscription;
                     }
@@ -144,27 +149,24 @@ public class CachingSubscriptionDAO implements SubscriptionDAO {
     public OwnedSubscription getSubscription(String subscription) {
         // Try to load the subscription without forcing a synchronous reload.  This will return null only if it is the
         // first time the subscription has been loaded or if it has been invalidated.  The returned subscription may
-        // be dirty from the cache's perspective, but the cache handler will have invalidated the cached value if it
-        // were changed -- the reload is only used as a failsafe.  If the value is dirty the cache will asynchronously
-        // reload it in the background.
+        // be expired but the cache registry will have invalidated the cached value if it were changed -- the reload is
+        // only used as a failsafe.  If the value is expired the cache will asynchronously reload it in the background.
 
         OwnedSubscription ownedSubscription = _subscriptionCache.getIfPresent(subscription);
-        if (ownedSubscription != null) {
-            return ownedSubscription;
+        if (ownedSubscription == null) {
+            // This time call get() to force the value to load, possibly synchronously.  This will also cause the value
+            // to be cached.
+
+            ownedSubscription = _subscriptionCache.getUnchecked(subscription);
         }
 
-        // This time call get() to force the value to load, possibly synchronously.  This will also cause the value
-        // to be cached.
-        try {
-            return _subscriptionCache.get(subscription);
-        } catch (ExecutionException e) {
-            // Loading caches cannot store nulls.  If the subscription did not exist the loader would have thrown
-            // NoSuchElementException.  Check if that is the case, otherwise propagate the exception.
-            if (e.getCause() instanceof NoSuchElementException) {
-                return null;
-            }
-            throw Throwables.propagate(e);
+        // If the subscription did not exist return null and immediately remove from cache.
+        if (ownedSubscription == NULL_SUBSCRIPTION) {
+            _subscriptionCache.invalidate(subscription);
+            ownedSubscription = null;
         }
+
+        return ownedSubscription;
     }
 
     @Override
