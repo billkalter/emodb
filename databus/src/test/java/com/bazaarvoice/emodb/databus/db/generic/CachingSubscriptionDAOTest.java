@@ -44,18 +44,20 @@ import static org.testng.Assert.assertNull;
 public class CachingSubscriptionDAOTest {
 
     private DateTime _now;
+    private Clock _clock;
     private ListeningExecutorService _service;
     private SubscriptionDAO _delegate;
-    private CachingSubscriptionDAO _cachingSubscriptionDAO;
     private Cache<String, ?> _cache;
     private CacheHandle _cacheHandle;
+    private Cache<String, ?> _legacyCache;
+    private CacheHandle _legacyCacheHandle;
 
     @BeforeMethod
     public void setUp() {
         _now = new DateTime(2016, 1, 1, 0, 0, DateTimeZone.UTC);
 
-        Clock clock = mock(Clock.class);
-        when(clock.millis()).thenAnswer(new Answer<Long>() {
+        _clock = mock(Clock.class);
+        when(_clock.millis()).thenAnswer(new Answer<Long>() {
             @Override
             public Long answer(InvocationOnMock invocationOnMock) throws Throwable {
                 return _now.getMillis();
@@ -63,39 +65,58 @@ public class CachingSubscriptionDAOTest {
         });
 
         _service = mock(ListeningExecutorService.class);
-        _delegate = new InMemorySubscriptionDAO(clock);
+        _delegate = new InMemorySubscriptionDAO(_clock);
 
         // Insert some test data into the delegate
         for (int i=0; i < 3; i++) {
             _delegate.insertSubscription("owner", "sub" + i, Conditions.alwaysTrue(), Duration.standardDays(1), Duration.standardMinutes(5));
         }
+    }
 
+    private CachingSubscriptionDAO createDAO() {
+        return createDAO(CachingSubscriptionDAO.CachingMode.normal);
+    }
+
+    private CachingSubscriptionDAO createDAO(CachingSubscriptionDAO.CachingMode cachingMode) {
         CacheRegistry cacheRegistry = mock(CacheRegistry.class);
         _cacheHandle = mock(CacheHandle.class);
         when(cacheRegistry.register(eq("subscriptionsByName"), any(Cache.class), eq(true))).thenReturn(_cacheHandle);
 
-        _cachingSubscriptionDAO = new CachingSubscriptionDAO(_delegate, cacheRegistry, _service, new MetricRegistry(), clock);
+        _legacyCacheHandle = mock(CacheHandle.class);
+        when(cacheRegistry.register(eq("subscriptions"), any(Cache.class), eq(true))).thenReturn(_legacyCacheHandle);
+
+        CachingSubscriptionDAO dao = new CachingSubscriptionDAO(_delegate, cacheRegistry, _service, new MetricRegistry(),
+                _clock, cachingMode);
 
         ArgumentCaptor<Cache> cacheCaptor = ArgumentCaptor.forClass(Cache.class);
         verify(cacheRegistry).register(eq("subscriptionsByName"), cacheCaptor.capture(), eq(true));
         _cache = cacheCaptor.getValue();
+
+        if (cachingMode != CachingSubscriptionDAO.CachingMode.normal) {
+            cacheCaptor = ArgumentCaptor.forClass(Cache.class);
+            verify(cacheRegistry).register(eq("subscriptions"), cacheCaptor.capture(), eq(true));
+            _legacyCache = cacheCaptor.getValue();
+        }
+
+        return dao;
     }
 
     @AfterMethod
     public void verifyMocks() {
-        verifyNoMoreInteractions(_cacheHandle, _service);
+        verifyNoMoreInteractions(_cacheHandle, _legacyCacheHandle, _service);
     }
 
     @Test
     public void testColdReadAllSubscriptions() throws Exception {
-        Collection<OwnedSubscription> subscriptions = ImmutableList.copyOf(_cachingSubscriptionDAO.getAllSubscriptions());
+        Collection<OwnedSubscription> subscriptions = ImmutableList.copyOf(createDAO().getAllSubscriptions());
         assertEquals(subscriptions.stream().map(Subscription::getName).sorted().collect(Collectors.toList()),
                 ImmutableList.of("sub0", "sub1", "sub2"));
     }
 
     @Test
     public void testReadAllSubscriptionsAfterInvalidate() throws Exception {
-        Collection<OwnedSubscription> subscriptions = ImmutableList.copyOf(_cachingSubscriptionDAO.getAllSubscriptions());
+        CachingSubscriptionDAO cachingSubscriptionDAO = createDAO();
+        Collection<OwnedSubscription> subscriptions = ImmutableList.copyOf(cachingSubscriptionDAO.getAllSubscriptions());
         assertEquals(subscriptions.stream().map(Subscription::getName).sorted().collect(Collectors.toList()),
                 ImmutableList.of("sub0", "sub1", "sub2"));
 
@@ -107,7 +128,7 @@ public class CachingSubscriptionDAOTest {
         _cache.invalidate("sub2");
 
         // Reading again should include the updated sub2
-        subscriptions = ImmutableList.copyOf(_cachingSubscriptionDAO.getAllSubscriptions());
+        subscriptions = ImmutableList.copyOf(cachingSubscriptionDAO.getAllSubscriptions());
         assertEquals(subscriptions.stream().map(Subscription::getName).sorted().collect(Collectors.toList()),
                 ImmutableList.of("sub0", "sub1", "sub2"));
         assertEquals(subscriptions.stream()
@@ -119,11 +140,13 @@ public class CachingSubscriptionDAOTest {
 
     @Test
     public void testReadAllSubscriptionsAfterExpiration() throws Exception {
+        CachingSubscriptionDAO cachingSubscriptionDAO = createDAO();
+
         // In order for this test to run deterministically we must have only one subscription.  Delete all but sub0.
         _delegate.deleteSubscription("sub1");
         _delegate.deleteSubscription("sub2");
 
-        List<OwnedSubscription> subscriptions = ImmutableList.copyOf(_cachingSubscriptionDAO.getAllSubscriptions());
+        List<OwnedSubscription> subscriptions = ImmutableList.copyOf(cachingSubscriptionDAO.getAllSubscriptions());
         assertEquals(subscriptions.size(), 1);
         assertEquals(subscriptions.get(0).getName(), "sub0");
         assertEquals(subscriptions.get(0).getTableFilter(), Conditions.alwaysTrue());
@@ -136,7 +159,7 @@ public class CachingSubscriptionDAOTest {
         _now = _now.plusMinutes(10);
 
         // Cached subscription should still be returned
-        subscriptions = ImmutableList.copyOf(_cachingSubscriptionDAO.getAllSubscriptions());
+        subscriptions = ImmutableList.copyOf(cachingSubscriptionDAO.getAllSubscriptions());
         assertEquals(subscriptions.size(), 1);
         assertEquals(subscriptions.get(0).getName(), "sub0");
         assertEquals(subscriptions.get(0).getTableFilter(), Conditions.alwaysTrue());
@@ -151,7 +174,7 @@ public class CachingSubscriptionDAOTest {
         when(_service.submit(any(Callable.class))).thenReturn(future);
 
         // Reading again should still return the old value but spawn an asynchronous reload of the subscription
-        subscriptions = ImmutableList.copyOf(_cachingSubscriptionDAO.getAllSubscriptions());
+        subscriptions = ImmutableList.copyOf(cachingSubscriptionDAO.getAllSubscriptions());
         assertEquals(subscriptions.size(), 1);
         assertEquals(subscriptions.get(0).getName(), "sub0");
         assertEquals(subscriptions.get(0).getTableFilter(), Conditions.alwaysTrue());
@@ -170,7 +193,7 @@ public class CachingSubscriptionDAOTest {
         _cache.invalidate("sub0");
 
         // Reading again now should return the updated value
-        subscriptions = ImmutableList.copyOf(_cachingSubscriptionDAO.getAllSubscriptions());
+        subscriptions = ImmutableList.copyOf(cachingSubscriptionDAO.getAllSubscriptions());
         assertEquals(subscriptions.size(), 1);
         assertEquals(subscriptions.get(0).getName(), "sub0");
         assertEquals(subscriptions.get(0).getTableFilter(), newCondition);
@@ -178,33 +201,36 @@ public class CachingSubscriptionDAOTest {
 
     @Test
     public void testColdReadSingleSubscription() throws Exception {
-        OwnedSubscription subscription = _cachingSubscriptionDAO.getSubscription("sub0");
+        OwnedSubscription subscription = createDAO().getSubscription("sub0");
         assertEquals(subscription.getName(), "sub0");
     }
 
     @Test
     public void testReadSingleSubscriptionWithAllSubscriptionsCached() throws Exception {
+        CachingSubscriptionDAO cachingSubscriptionDAO = createDAO();
         // Cause all subscriptions to be cached
-        _cachingSubscriptionDAO.getAllSubscriptions();
+        cachingSubscriptionDAO.getAllSubscriptions();
         // With all subscriptions cached the following should read the value from cache
-        OwnedSubscription subscription = _cachingSubscriptionDAO.getSubscription("sub0");
+        OwnedSubscription subscription = cachingSubscriptionDAO.getSubscription("sub0");
         assertEquals(subscription.getName(), "sub0");
     }
 
     @Test
     public void testReadSingleSubscriptionAfterExpiration() throws Exception {
+        CachingSubscriptionDAO cachingSubscriptionDAO = createDAO();
+
         SettableFuture future = SettableFuture.create();
         when(_service.submit(any(Callable.class))).thenReturn(future);
 
         // Cause all subscriptions to be cached
-        _cachingSubscriptionDAO.getAllSubscriptions();
+        cachingSubscriptionDAO.getAllSubscriptions();
         // Move time forward one hour
         _now = _now.plusHours(1);
         // Remove sub0 from the delegate
         _delegate.deleteSubscription("sub0");
 
         // Read the subscription.  This should return the cached value and spawn an asynchronous refresh
-        OwnedSubscription subscription = _cachingSubscriptionDAO.getSubscription("sub0");
+        OwnedSubscription subscription = cachingSubscriptionDAO.getSubscription("sub0");
         assertEquals(subscription.getName(), "sub0");
 
         // Verify a call was made to refresh the full subscription cache
@@ -215,19 +241,21 @@ public class CachingSubscriptionDAOTest {
         future.set(callableCaptor.getValue().call());
 
         // Reading the subscription now should correctly return null.
-        subscription = _cachingSubscriptionDAO.getSubscription("sub0");
+        subscription = cachingSubscriptionDAO.getSubscription("sub0");
         assertNull(subscription);
     }
 
     @Test
     public void testInvalidateOnInsert() throws Exception {
-        _cachingSubscriptionDAO.insertSubscription("owner", "sub4", Conditions.alwaysTrue(), Duration.standardDays(1), Duration.standardMinutes(5));
+        createDAO().insertSubscription("owner", "sub4", Conditions.alwaysTrue(), Duration.standardDays(1), Duration.standardMinutes(5));
         verify(_cacheHandle).invalidate(InvalidationScope.DATA_CENTER, "sub4");
     }
 
     @Test
     public void testInvalidateOnDelete() throws Exception {
-        _cachingSubscriptionDAO.deleteSubscription("sub0");
+        createDAO().deleteSubscription("sub0");
         verify(_cacheHandle).invalidate(InvalidationScope.DATA_CENTER, "sub0");
     }
+
+    // TODO:  Add tests for legacy invalidation handling
 }

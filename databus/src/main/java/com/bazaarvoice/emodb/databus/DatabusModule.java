@@ -197,4 +197,9 @@ public class DatabusModule extends PrivateModule {
         lifeCycleRegistry.manage(new ExecutorServiceManager(service, Duration.seconds(1), "subscription-cache"));
         return service;
     }
+
+    @Provides @Singleton
+    CachingSubscriptionDAO.CachingMode provideCachingSubscriptionDAOCachingMode(DatabusConfiguration configuration) {
+        return configuration.getSubscriptionCacheInvaliation();
+    }
 }
