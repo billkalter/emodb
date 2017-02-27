@@ -2,8 +2,10 @@ package com.bazaarvoice.emodb.databus.core;
 
 import com.bazaarvoice.emodb.databus.api.Databus;
 import com.bazaarvoice.emodb.databus.api.Event;
+import com.bazaarvoice.emodb.databus.api.MoveRequest;
 import com.bazaarvoice.emodb.databus.api.MoveSubscriptionStatus;
 import com.bazaarvoice.emodb.databus.api.PollResult;
+import com.bazaarvoice.emodb.databus.api.ReplayRequest;
 import com.bazaarvoice.emodb.databus.api.ReplaySubscriptionStatus;
 import com.bazaarvoice.emodb.databus.api.Subscription;
 import com.bazaarvoice.emodb.databus.api.UnknownSubscriptionException;
@@ -115,6 +117,11 @@ public class DatabusFactory {
             }
 
             @Override
+            public String replayAsync(ReplayRequest request) {
+                return _ownerAwareDatabus.replayAsync(ownerId, request);
+            }
+
+            @Override
             public ReplaySubscriptionStatus getReplayStatus(String reference) {
                 return _ownerAwareDatabus.getReplayStatus(ownerId, reference);
             }
@@ -122,6 +129,11 @@ public class DatabusFactory {
             @Override
             public String moveAsync(String from, String to) {
                 return _ownerAwareDatabus.moveAsync(ownerId, from, to);
+            }
+
+            @Override
+            public String moveAsync(MoveRequest request) {
+                return _ownerAwareDatabus.moveAsync(ownerId, request);
             }
 
             @Override

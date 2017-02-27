@@ -1,8 +1,10 @@
 package com.bazaarvoice.emodb.databus.core;
 
 import com.bazaarvoice.emodb.databus.api.Event;
+import com.bazaarvoice.emodb.databus.api.MoveRequest;
 import com.bazaarvoice.emodb.databus.api.MoveSubscriptionStatus;
 import com.bazaarvoice.emodb.databus.api.PollResult;
+import com.bazaarvoice.emodb.databus.api.ReplayRequest;
 import com.bazaarvoice.emodb.databus.api.ReplaySubscriptionStatus;
 import com.bazaarvoice.emodb.databus.api.Subscription;
 import com.bazaarvoice.emodb.databus.api.UnauthorizedSubscriptionException;
@@ -60,17 +62,26 @@ public interface OwnerAwareDatabus {
     void acknowledge(String ownerId, String subscription, Collection<String> eventKeys)
         throws UnauthorizedSubscriptionException;
 
+    @Deprecated
     String replayAsync(String ownerId, String subscription)
         throws UnauthorizedSubscriptionException;
 
+    @Deprecated
     String replayAsyncSince(String ownerId, String subscription, Date since)
+        throws UnauthorizedSubscriptionException;
+
+    String replayAsync(String ownerId, ReplayRequest request)
         throws UnauthorizedSubscriptionException;
 
     ReplaySubscriptionStatus getReplayStatus(String ownerId, String reference)
         throws UnauthorizedSubscriptionException;
 
+    @Deprecated
     String moveAsync(String ownerId, String from, String to)
         throws UnauthorizedSubscriptionException;
+
+    String moveAsync(String ownerId, MoveRequest request)
+            throws UnauthorizedSubscriptionException;
 
     MoveSubscriptionStatus getMoveStatus(String ownerId, String reference)
         throws UnauthorizedSubscriptionException;

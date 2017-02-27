@@ -88,25 +88,66 @@ public interface Databus {
     void acknowledge(String subscription, Collection<String> eventKeys);
 
     /**
-     * Replays events from the last two days for the given subscription.  This method returns immediately with
-     * a reference that can be used to query the progress of the replay.
+     * Deprecated; use {@link #replayAsync(ReplayRequest)}
+     *
+     * The current implementation of this method functionally equivalent to:
+     *
+     * <code>
+     *     replayAsync(new ReplayRequest(subscription));
+     * </code>
      */
+    @Deprecated
     String replayAsync(String subscription);
 
     /**
-     * Replays events since the given timestamp within the last two days for the given subscription.
-     * This method returns immediately with a reference that can be used to query the progress of the replay.
-     * NOTE: This may replay some extra events that are before the 'since' timestamp (no more than 999 previous events),
-     * but guarantees that any events on or after 'since' will be replayed.
-     * @param since Specifies timestamp since when the events will be replayed (inclusive)
+     * Deprecated; use {@link #replayAsync(ReplayRequest)}
+     *
+     * The current implementation of this method functionally equivalent to:
+     *
+     * <code>
+     *     replayAsync(new ReplayRequest(subscription).since(date));
+     * </code>
      */
+    @Deprecated
     String replayAsyncSince(String subscription, Date since);
 
     /**
-     * Checks the status of a replay operation.  If the reference is unknown or the replay failed then this method will
+     * Replays events for a subscription.  Options configurable from the request include:
+     *
+     * <ul>
+     *     <li>
+     *         By default events are replayed for the last two days for the given subscription.  The request can include
+     *         a "since" date for within the last two days to only include events since that date.
+     *
+     *         NOTE: This may replay some extra events that are before the 'since' timestamp (no more than 999 previous
+     *         events), but guarantees that any events on or after 'since' will be replayed.
+     *     </li>
+     *     <li>
+     *         An S3 URI for uploading detailed logs of replayed events.  Only a best-effort attempt is made to upload
+     *         the log; it is up to the caller to ensure EmoDB has sufficient write access to write the log file to S3.
+     *     </li>
+     * </ul>
+     *
+     * This method returns immediately with a reference that can be used to query the progress of the replay.
+     */
+    String replayAsync(ReplayRequest request);
+
+    /**
+     * Checks the status of a replayc operation.  If the reference is unknown or the replay failed then this method will
      * throw an exception.
      */
     ReplaySubscriptionStatus getReplayStatus(String reference);
+
+    /**
+     * Deprecated; use {@link #moveAsync(MoveRequest)}
+     *
+     * The current implementation of this method functionally equivalent to:
+     *
+     * <code>
+     *     moveAsync(MoveRequest.from(from).to(to));
+     * </code>
+     */
+    String moveAsync(String from, String to);
 
     /**
      * Moves events from one subscription to another.  This moves all currently un-acked events and does not filter
@@ -114,8 +155,8 @@ public interface Databus {
      * regarding event TTLs--an event about to expire may or may not have its TTL reset.
      * This method returns immediately with a reference that can be used to query the progress of the move.
      */
-    String moveAsync(String from, String to);
-
+    String moveAsync(MoveRequest request);
+    
     /**
      * Checks the status of a move operation.  If the reference is unknown or the move failed then this method will throw an exception.
      */

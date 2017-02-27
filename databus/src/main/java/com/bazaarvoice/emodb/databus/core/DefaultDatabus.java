@@ -8,9 +8,11 @@ import com.bazaarvoice.emodb.databus.DefaultJoinFilter;
 import com.bazaarvoice.emodb.databus.QueueDrainExecutorService;
 import com.bazaarvoice.emodb.databus.SystemInternalId;
 import com.bazaarvoice.emodb.databus.api.Event;
+import com.bazaarvoice.emodb.databus.api.MoveRequest;
 import com.bazaarvoice.emodb.databus.api.MoveSubscriptionStatus;
 import com.bazaarvoice.emodb.databus.api.Names;
 import com.bazaarvoice.emodb.databus.api.PollResult;
+import com.bazaarvoice.emodb.databus.api.ReplayRequest;
 import com.bazaarvoice.emodb.databus.api.ReplaySubscriptionStatus;
 import com.bazaarvoice.emodb.databus.api.Subscription;
 import com.bazaarvoice.emodb.databus.api.UnauthorizedSubscriptionException;
@@ -661,17 +663,25 @@ public class DefaultDatabus implements OwnerAwareDatabus, Managed {
 
     @Override
     public String replayAsync(String ownerId, String subscription) {
-        return replayAsyncSince(ownerId, subscription, null);
+        return replayAsync(ownerId, new ReplayRequest(subscription));
     }
 
     @Override
     public String replayAsyncSince(String ownerId, String subscription, Date since) {
+        return replayAsync(ownerId, new ReplayRequest(subscription).since(since));
+    }
+
+    @Override
+    public String replayAsync(String ownerId, ReplayRequest request) throws UnauthorizedSubscriptionException {
+        String subscription = checkNotNull(request, "request").getSubscription();
+
         checkLegalSubscriptionName(subscription);
         checkSubscriptionOwner(ownerId, subscription);
 
         JobIdentifier<ReplaySubscriptionRequest, ReplaySubscriptionResult> jobId =
                 _jobService.submitJob(
-                        new JobRequest<>(ReplaySubscriptionJob.INSTANCE, new ReplaySubscriptionRequest(ownerId, subscription, since)));
+                        new JobRequest<>(ReplaySubscriptionJob.INSTANCE, new ReplaySubscriptionRequest(
+                                ownerId, subscription, request.getSince(), request.getS3LogUri())));
 
         return jobId.toString();
     }
@@ -727,6 +737,15 @@ public class DefaultDatabus implements OwnerAwareDatabus, Managed {
 
     @Override
     public String moveAsync(String ownerId, String from, String to) {
+        return moveAsync(ownerId, MoveRequest.from(from).to(to));
+    }
+
+    @Override
+    public String moveAsync(String ownerId, MoveRequest request) throws UnauthorizedSubscriptionException {
+        checkNotNull(request, "request");
+        String from = request.getFrom();
+        String to = request.getTo();
+        
         checkLegalSubscriptionName(from);
         checkLegalSubscriptionName(to);
         checkSubscriptionOwner(ownerId, from);
@@ -734,7 +753,8 @@ public class DefaultDatabus implements OwnerAwareDatabus, Managed {
 
         JobIdentifier<MoveSubscriptionRequest, MoveSubscriptionResult> jobId =
                 _jobService.submitJob(new JobRequest<>(
-                        MoveSubscriptionJob.INSTANCE, new MoveSubscriptionRequest(ownerId, from, to)));
+                        MoveSubscriptionJob.INSTANCE, new MoveSubscriptionRequest(
+                                ownerId, from, to, request.getS3LogUri())));
 
         return jobId.toString();
     }
