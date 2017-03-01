@@ -52,12 +52,12 @@ public class DataCenterSynchronizedRoleManager implements RoleManager {
     }
 
     @Override
-    public Role createRole(RoleIdentifier id, RoleUpdateRequest request) {
+    public Role createRole(RoleIdentifier id, RoleModification request) {
         return inMutex(() -> _delegate.createRole(id, request));
     }
 
     @Override
-    public void updateRole(RoleIdentifier id, RoleUpdateRequest request) {
+    public void updateRole(RoleIdentifier id, RoleModification request) {
         inMutex(() -> _delegate.updateRole(id, request));
     }
 

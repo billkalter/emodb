@@ -42,6 +42,7 @@ import com.bazaarvoice.emodb.web.resources.databus.SubjectDatabus;
 import com.bazaarvoice.emodb.web.resources.queue.DedupQueueResource1;
 import com.bazaarvoice.emodb.web.resources.queue.QueueResource1;
 import com.bazaarvoice.emodb.web.resources.report.ReportResource1;
+import com.bazaarvoice.emodb.web.resources.uac.UserAccessControlResource1;
 import com.bazaarvoice.emodb.web.resources.sor.DataStoreResource1;
 import com.bazaarvoice.emodb.web.scanner.ScanUploader;
 import com.bazaarvoice.emodb.web.scanner.resource.ScanUploadResource1;
@@ -86,6 +87,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 
+import static com.bazaarvoice.emodb.common.dropwizard.service.EmoServiceMode.Aspect.auth_web;
 import static com.bazaarvoice.emodb.common.dropwizard.service.EmoServiceMode.Aspect.blackList;
 import static com.bazaarvoice.emodb.common.dropwizard.service.EmoServiceMode.Aspect.blobStore_web;
 import static com.bazaarvoice.emodb.common.dropwizard.service.EmoServiceMode.Aspect.cache;
@@ -197,6 +199,7 @@ public class EmoService extends Application<EmoConfiguration> {
         evaluateScanner();
         evaluateServiceStartedListeners();
         evaluateSwagger();
+        evaluateAuth();
     }
 
     private void evaluateWeb()
@@ -390,6 +393,17 @@ public class EmoService extends Application<EmoConfiguration> {
         beanConfig.setResourcePackage("com.bazaarvoice.emodb.web.resources");
         // this is a MUST and should be the last property - this creates a new SwaggerContextService and initialize the scanner.
         beanConfig.setScan(true);
+    }
+
+    private void evaluateAuth()
+            throws Exception {
+        if (!runPerServiceMode(auth_web)) {
+            return;
+        }
+
+        ResourceRegistry resources = _injector.getInstance(ResourceRegistry.class);
+        UserAccessControlResource1 authResource = _injector.getInstance(UserAccessControlResource1.class);
+        resources.addResource(_cluster, "emodb-auth-admin-1", authResource);
     }
 
     private boolean runPerServiceMode (EmoServiceMode.Aspect aspect) {

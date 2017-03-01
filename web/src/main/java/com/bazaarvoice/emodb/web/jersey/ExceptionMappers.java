@@ -26,7 +26,11 @@ public class ExceptionMappers {
                 new DeltaSizeLimitExceptionMapper(),
                 new AuditSizeLimitExceptionMapper(),
                 new UnauthorizedSubscriptionExceptionMapper(),
-                new ServiceUnavailableExceptionMapper());
+                new ServiceUnavailableExceptionMapper(),
+                new RoleNotFoundExceptionMapper(),
+                new RoleExistsExceptionMapper(),
+                new ApiKeyNotFoundExceptionMapper(),
+                new ApiKeyExistsExceptionMapper());
     }
 
     public static Iterable<Class> getMapperTypes() {

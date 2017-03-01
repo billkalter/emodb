@@ -54,7 +54,7 @@ public class InMemoryRoleManager implements RoleManager {
     }
 
     @Override
-    public Role createRole(RoleIdentifier id, RoleUpdateRequest request) {
+    public Role createRole(RoleIdentifier id, RoleModification request) {
         if (getRole(id) != null) {
             throw new RoleExistsException(id.getGroup(), id.getId());
         }
@@ -70,7 +70,7 @@ public class InMemoryRoleManager implements RoleManager {
     }
 
     @Override
-    public void updateRole(RoleIdentifier id, RoleUpdateRequest request) {
+    public void updateRole(RoleIdentifier id, RoleModification request) {
         Role role = getRole(id);
         if (role == null) {
             throw new RoleNotFoundException(id.getGroup(), id.getId());

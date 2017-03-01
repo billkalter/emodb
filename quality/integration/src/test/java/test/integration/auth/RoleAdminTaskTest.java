@@ -9,7 +9,7 @@ import com.bazaarvoice.emodb.auth.permissions.InMemoryPermissionManager;
 import com.bazaarvoice.emodb.auth.permissions.PermissionUpdateRequest;
 import com.bazaarvoice.emodb.auth.role.InMemoryRoleManager;
 import com.bazaarvoice.emodb.auth.role.RoleIdentifier;
-import com.bazaarvoice.emodb.auth.role.RoleUpdateRequest;
+import com.bazaarvoice.emodb.auth.role.RoleModification;
 import com.bazaarvoice.emodb.blob.api.BlobStore;
 import com.bazaarvoice.emodb.common.dropwizard.task.TaskRegistry;
 import com.bazaarvoice.emodb.sor.api.DataStore;
@@ -55,8 +55,8 @@ public class RoleAdminTaskTest {
         _roleManager = new InMemoryRoleManager(permissionManager);
 
         RoleIdentifier adminId = new RoleIdentifier(null, DefaultRoles.admin.toString());
-        _roleManager.createRole(adminId, new RoleUpdateRequest()
-                .withPermissionUpdate(new PermissionUpdateRequest().permit(ImmutableSet.of(Permissions.unlimitedRole()))));
+        _roleManager.createRole(adminId, new RoleModification()
+                .setPermissionUpdate(new PermissionUpdateRequest().permit(ImmutableSet.of(Permissions.unlimitedRole()))));
         ApiKeySecurityManager securityManager = new ApiKeySecurityManager(
                 new ApiKeyRealm("test", new MemoryConstrainedCacheManager(), _authIdentityManager, permissionManager,
                         null));
@@ -86,8 +86,8 @@ public class RoleAdminTaskTest {
     @Test
     public void testViewRole()
             throws Exception {
-        _roleManager.createRole(new RoleIdentifier(null, "view-role"), new RoleUpdateRequest()
-                .withPermissionUpdate(new PermissionUpdateRequest().permit(
+        _roleManager.createRole(new RoleIdentifier(null, "view-role"), new RoleModification()
+                .setPermissionUpdate(new PermissionUpdateRequest().permit(
                         ImmutableSet.of("queue|post|foo", "queue|poll|foo", "sor|update|test:*", "blob|update|test:*"))));
 
         StringWriter out = new StringWriter();
@@ -131,8 +131,8 @@ public class RoleAdminTaskTest {
     @Test
     public void testUpdateRole()
             throws Exception {
-        _roleManager.createRole(new RoleIdentifier(null, "existing-role"), new RoleUpdateRequest()
-                .withPermissionUpdate(new PermissionUpdateRequest().permit(
+        _roleManager.createRole(new RoleIdentifier(null, "existing-role"), new RoleModification()
+                .setPermissionUpdate(new PermissionUpdateRequest().permit(
                         ImmutableSet.of("queue|post|foo", "queue|post|bar"))));
 
         _task.execute(ImmutableMultimap.of(
@@ -153,8 +153,8 @@ public class RoleAdminTaskTest {
     @Test
     public void testDeleteRole()
             throws Exception {
-        _roleManager.createRole(new RoleIdentifier(null, "delete-role"), new RoleUpdateRequest()
-                .withPermissionUpdate(new PermissionUpdateRequest().permit(
+        _roleManager.createRole(new RoleIdentifier(null, "delete-role"), new RoleModification()
+                .setPermissionUpdate(new PermissionUpdateRequest().permit(
                         ImmutableSet.of("queue|post|foo", "queue|post|bar"))));
 
         _task.execute(ImmutableMultimap.of(
@@ -199,8 +199,8 @@ public class RoleAdminTaskTest {
     @Test
     public void testCheckRole()
             throws Exception {
-        _roleManager.createRole(new RoleIdentifier("check-group", "check-role"), new RoleUpdateRequest()
-                .withPermissionUpdate(new PermissionUpdateRequest().permit(
+        _roleManager.createRole(new RoleIdentifier("check-group", "check-role"), new RoleModification()
+                .setPermissionUpdate(new PermissionUpdateRequest().permit(
                         ImmutableSet.of("sor|update|c*", "sor|update|ch*"))));
 
         Map<String, List<String>> expected = ImmutableMap.<String, List<String>> of(

@@ -29,6 +29,9 @@ import com.bazaarvoice.emodb.cachemgr.api.CacheRegistry;
 import com.bazaarvoice.emodb.databus.ReplicationKey;
 import com.bazaarvoice.emodb.databus.SystemInternalId;
 import com.bazaarvoice.emodb.sor.api.DataStore;
+import com.bazaarvoice.emodb.web.resources.uac.ApiKeyResource1;
+import com.bazaarvoice.emodb.web.resources.uac.UserAccessControlResource1;
+import com.bazaarvoice.emodb.web.resources.uac.RoleResource1;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -95,6 +98,10 @@ public class SecurityModule extends PrivateModule {
         bind(ApiKeyAdminTask.class).asEagerSingleton();
         bind(RoleAdminTask.class).asEagerSingleton();
         bind(RebuildMissingRolesTask.class).asEagerSingleton();
+
+        bind(UserAccessControlResource1.class).asEagerSingleton();;
+        bind(RoleResource1.class).asEagerSingleton();
+        bind(ApiKeyResource1.class).asEagerSingleton();
         
         bind(new TypeLiteral<Set<String>>() {})
                 .annotatedWith(ReservedRoles.class)
@@ -115,6 +122,7 @@ public class SecurityModule extends PrivateModule {
         expose(Key.get(String.class, SystemInternalId.class));
         expose(PermissionResolver.class);
         expose(InternalAuthorizer.class);
+        expose(UserAccessControlResource1.class);
     }
 
     @Provides

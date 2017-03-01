@@ -138,7 +138,7 @@ public class TableRoleManager implements RoleManager {
     }
 
     @Override
-    public Role createRole(RoleIdentifier id, RoleUpdateRequest request) {
+    public Role createRole(RoleIdentifier id, RoleModification request) {
         checkNotNull(id, "id");
         checkArgument(isLegalRoleName(id.getId()), "Role cannot have ID %s", id.getId());
         String groupKey = checkGroup(id.getGroup());
@@ -186,7 +186,7 @@ public class TableRoleManager implements RoleManager {
     }
 
     @Override
-    public void updateRole(RoleIdentifier id, RoleUpdateRequest request) {
+    public void updateRole(RoleIdentifier id, RoleModification request) {
         // First, verify the role exists
         Role role = getRole(id);
         if (role == null) {

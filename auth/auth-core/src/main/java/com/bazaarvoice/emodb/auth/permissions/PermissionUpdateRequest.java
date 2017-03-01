@@ -1,9 +1,12 @@
 package com.bazaarvoice.emodb.auth.permissions;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.base.Predicates;
 import com.google.common.collect.Maps;
 
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -15,6 +18,24 @@ public class PermissionUpdateRequest {
 
     private final Map<String, Boolean> _permissions = Maps.newLinkedHashMap();
     private boolean _revokeRest = false;
+
+    public PermissionUpdateRequest() {
+    }
+
+    @JsonCreator
+    private PermissionUpdateRequest(@JsonProperty("permitted") List<String> permitted,
+                                    @JsonProperty("revoked") List<String> revoked,
+                                    @JsonProperty("revokeRest") Boolean revokeRest) {
+        if (permitted != null) {
+            permit(permitted);
+        }
+        if (revoked != null) {
+            revoke(revoked);
+        }
+        if (revokeRest != null && revokeRest) {
+            revokeRest();
+        }
+    }
 
     public PermissionUpdateRequest permit(Iterable<String> permissions) {
         update(Boolean.TRUE, permissions);

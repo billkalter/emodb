@@ -52,7 +52,8 @@ public enum EmoServiceMode {
             Aspect.security,
             Aspect.full_consistency,
             Aspect.invalidation_cache_listener,
-            Aspect.swagger
+            Aspect.swagger,
+            Aspect.auth_web
     ),
 
     STANDARD_BLOB(
@@ -155,7 +156,8 @@ public enum EmoServiceMode {
         security,
         invalidation_cache_listener, // This makes sure the node is registered in zookeeper to invalidate its caches
         scanner(false),
-        swagger;
+        swagger,
+        auth_web;
 
         private boolean _standard;
 

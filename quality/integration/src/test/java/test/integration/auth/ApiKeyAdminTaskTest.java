@@ -9,7 +9,7 @@ import com.bazaarvoice.emodb.auth.permissions.InMemoryPermissionManager;
 import com.bazaarvoice.emodb.auth.permissions.PermissionUpdateRequest;
 import com.bazaarvoice.emodb.auth.role.InMemoryRoleManager;
 import com.bazaarvoice.emodb.auth.role.RoleIdentifier;
-import com.bazaarvoice.emodb.auth.role.RoleUpdateRequest;
+import com.bazaarvoice.emodb.auth.role.RoleModification;
 import com.bazaarvoice.emodb.blob.api.BlobStore;
 import com.bazaarvoice.emodb.common.dropwizard.task.TaskRegistry;
 import com.bazaarvoice.emodb.sor.api.DataStore;
@@ -63,7 +63,7 @@ public class ApiKeyAdminTaskTest {
         String internalId = key + "-id";
 
         _roleManager.createRole(new RoleIdentifier(null, role),
-                new RoleUpdateRequest().withPermissionUpdate(new PermissionUpdateRequest().permit(
+                new RoleModification().setPermissionUpdate(new PermissionUpdateRequest().permit(
                         ImmutableSet.copyOf(permissions))));
 
         _authIdentityManager.createIdentity(key, new ApiKey(internalId, ImmutableSet.of(role)));

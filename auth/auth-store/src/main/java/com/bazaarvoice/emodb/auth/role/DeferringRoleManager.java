@@ -65,7 +65,7 @@ public class DeferringRoleManager implements RoleManager {
     }
 
     @Override
-    public Role createRole(RoleIdentifier id, RoleUpdateRequest request) {
+    public Role createRole(RoleIdentifier id, RoleModification request) {
         checkNotNull(id, "id");
         if (_rolesById.containsKey(id)) {
             throw new RoleExistsException(id.getGroup(), id.getId());
@@ -74,7 +74,7 @@ public class DeferringRoleManager implements RoleManager {
     }
 
     @Override
-    public void updateRole(RoleIdentifier id, RoleUpdateRequest request) {
+    public void updateRole(RoleIdentifier id, RoleModification request) {
         checkNotNull(id, "id");
         checkArgument(!_rolesById.containsKey(id), "Cannot update role %s", id);
         _delegate.updateRole(id, request);

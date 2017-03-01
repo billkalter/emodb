@@ -3,10 +3,9 @@ package com.bazaarvoice.emodb.web.auth;
 import com.bazaarvoice.emodb.auth.apikey.ApiKeyAuthenticationToken;
 import com.bazaarvoice.emodb.auth.apikey.ApiKeyRequest;
 import com.bazaarvoice.emodb.auth.permissions.PermissionUpdateRequest;
-import com.bazaarvoice.emodb.auth.role.RoleExistsException;
 import com.bazaarvoice.emodb.auth.role.RoleIdentifier;
 import com.bazaarvoice.emodb.auth.role.RoleManager;
-import com.bazaarvoice.emodb.auth.role.RoleUpdateRequest;
+import com.bazaarvoice.emodb.auth.role.RoleModification;
 import com.bazaarvoice.emodb.common.dropwizard.task.TaskRegistry;
 import com.bazaarvoice.emodb.web.auth.resource.VerifiableResource;
 import com.google.common.base.Strings;
@@ -223,16 +222,16 @@ public class RoleAdminTask extends Task {
             return;
         }
 
-        RoleUpdateRequest request = new RoleUpdateRequest();
+        RoleModification request = new RoleModification();
 
         if (name != null) {
-            request = request.withName(Strings.emptyToNull(name));
+            request.setName(Strings.emptyToNull(name));
         }
         if (description != null) {
-            request = request.withDescription(Strings.emptyToNull(description));
+            request.setDescription(Strings.emptyToNull(description));
         }
         if (!permitSet.isEmpty() || !revokeSet.isEmpty()) {
-            request = request.withPermissionUpdate(new PermissionUpdateRequest()
+            request.setPermissionUpdate(new PermissionUpdateRequest()
                     .permit(permitSet)
                     .revoke(revokeSet));
         }

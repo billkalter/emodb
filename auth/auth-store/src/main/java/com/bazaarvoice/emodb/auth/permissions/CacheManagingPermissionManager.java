@@ -10,7 +10,7 @@ import java.util.Set;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
- * {@link com.bazaarvoice.emodb.auth.permissions.PermissionManager} which can explicitly provide some permissions and defer all others to another instance.
+ * {@link PermissionManager} which can explicitly provide some permissions and defer all others to another instance.
  */
 public class CacheManagingPermissionManager implements PermissionManager {
 
