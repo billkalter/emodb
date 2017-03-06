@@ -217,8 +217,8 @@ public class ApiKeyRealmTest {
 
     @Test
     public void testPermissionCheckByInternalId() {
-        ApiKey apiKey = new ApiKey("apikey0", "id0", ImmutableList.of("role0"));
-        _authIdentityManager.updateIdentity(apiKey);
+        ApiKey apiKey = new ApiKey("id0", ImmutableList.of("role0"));
+        _authIdentityManager.createIdentity("apikey0", apiKey);
         Permission rolePermission = mock(Permission.class);
         Permission positivePermission = mock(Permission.class);
         Permission negativePermission = mock(Permission.class);
@@ -244,8 +244,8 @@ public class ApiKeyRealmTest {
 
     @Test
     public void testCachedPermissionCheckByInternalId() {
-        ApiKey apiKey = new ApiKey("apikey0", "id0", ImmutableList.of("role0"));
-        _authIdentityManager.updateIdentity(apiKey);
+        ApiKey apiKey = new ApiKey("id0", ImmutableList.of("role0"));
+        _authIdentityManager.createIdentity("apikey0", apiKey);
         Permission rolePermission = mock(Permission.class);
         Permission positivePermission = mock(Permission.class);
         when(rolePermission.implies(positivePermission)).thenReturn(true);

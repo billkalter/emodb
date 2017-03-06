@@ -11,24 +11,24 @@ import java.util.Set;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 public class PrincipalWithRoles implements Principal {
+    private final String _key;
     private final String _id;
-    private final String _internalId;
     private final Set<String> _roles;
     private UserIdentity _userIdentity;
 
-    public PrincipalWithRoles(String id, String internalId, Set<String> roles) {
+    public PrincipalWithRoles(String key, String id, Set<String> roles) {
+        _key = checkNotNull(key, "key");
         _id = checkNotNull(id, "id");
-        _internalId = checkNotNull(internalId, "internalId");
         _roles = checkNotNull(roles, "roles");
     }
 
     @Override
     public String getName() {
-        return _id;
+        return _key;
     }
 
-    public String getInternalId() {
-        return _internalId;
+    public String getId() {
+        return _id;
     }
 
     public Set<String> getRoles() {
@@ -37,7 +37,7 @@ public class PrincipalWithRoles implements Principal {
 
     @Override
     public String toString() {
-        return _id;
+        return _key;
     }
 
     /**
@@ -65,13 +65,13 @@ public class PrincipalWithRoles implements Principal {
 
         PrincipalWithRoles that = (PrincipalWithRoles) o;
 
-        return _id.equals(that._id) &&
-                _internalId.equals(that._internalId) &&
+        return _key.equals(that._key) &&
+                _id.equals(that._id) &&
                 _roles.equals(that._roles);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hashCode(_id, _internalId);
+        return Objects.hashCode(_key, _id);
     }
 }

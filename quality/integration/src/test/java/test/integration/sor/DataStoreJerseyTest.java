@@ -119,13 +119,13 @@ public class DataStoreJerseyTest extends ResourceTest {
 
     private ResourceTestRule setupDataStoreResourceTestRule() {
         InMemoryAuthIdentityManager<ApiKey> authIdentityManager = new InMemoryAuthIdentityManager<>();
-        authIdentityManager.updateIdentity(new ApiKey(APIKEY_TABLE, "id0", ImmutableSet.of("table-role")));
-        authIdentityManager.updateIdentity(new ApiKey(APIKEY_READ_TABLES_A, "id1", ImmutableSet.of("tables-a-role")));
-        authIdentityManager.updateIdentity(new ApiKey(APIKEY_READ_TABLES_B, "id2", ImmutableSet.of("tables-b-role")));
-        authIdentityManager.updateIdentity(new ApiKey(APIKEY_FACADE, "id3", ImmutableSet.of("facade-role")));
-        authIdentityManager.updateIdentity(new ApiKey(APIKEY_REVIEWS_ONLY, "id4", ImmutableSet.of("reviews-only-role")));
-        authIdentityManager.updateIdentity(new ApiKey(APIKEY_STANDARD, "id5", ImmutableSet.of("standard")));
-        authIdentityManager.updateIdentity(new ApiKey(APIKEY_STANDARD_UPDATE, "id5", ImmutableSet.of("update-with-events")));
+        authIdentityManager.createIdentity(APIKEY_TABLE, new ApiKey("id0", ImmutableSet.of("table-role")));
+        authIdentityManager.createIdentity(APIKEY_READ_TABLES_A, new ApiKey("id1", ImmutableSet.of("tables-a-role")));
+        authIdentityManager.createIdentity(APIKEY_READ_TABLES_B, new ApiKey("id2", ImmutableSet.of("tables-b-role")));
+        authIdentityManager.createIdentity(APIKEY_FACADE, new ApiKey("id3", ImmutableSet.of("facade-role")));
+        authIdentityManager.createIdentity(APIKEY_REVIEWS_ONLY, new ApiKey("id4", ImmutableSet.of("reviews-only-role")));
+        authIdentityManager.createIdentity(APIKEY_STANDARD, new ApiKey("id5", ImmutableSet.of("standard")));
+        authIdentityManager.createIdentity(APIKEY_STANDARD_UPDATE, new ApiKey("id6", ImmutableSet.of("update-with-events")));
 
         EmoPermissionResolver permissionResolver = new EmoPermissionResolver(_server, mock(BlobStore.class));
         InMemoryPermissionManager permissionManager = new InMemoryPermissionManager(permissionResolver);

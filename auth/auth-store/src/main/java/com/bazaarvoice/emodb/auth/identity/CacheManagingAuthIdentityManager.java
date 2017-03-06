@@ -2,8 +2,6 @@ package com.bazaarvoice.emodb.auth.identity;
 
 import com.bazaarvoice.emodb.auth.shiro.InvalidatableCacheManager;
 
-import java.util.Set;
-
 import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
@@ -20,9 +18,22 @@ public class CacheManagingAuthIdentityManager<T extends AuthIdentity> implements
     }
 
     @Override
-    public T getIdentity(String id) {
-        checkNotNull(id, "id");
-        return _manager.getIdentity(id);
+    public T getIdentity(String internalId) {
+        checkNotNull(internalId, "internalId");
+        return _manager.getIdentity(internalId);
+    }
+
+    @Override
+    public T getIdentityByAuthenticationId(String authenticationId) {
+        return _manager.getIdentityByAuthenticationId(authenticationId);
+    }
+
+    @Override
+    public void createIdentity(String authenticationId, T identity) throws IdentityExistsException {
+        checkNotNull(authenticationId, "authenticationId");
+        checkNotNull(identity, "identity");
+        _manager.createIdentity(authenticationId, identity);
+        _cacheManager.invalidateAll();
     }
 
     @Override
@@ -33,15 +44,18 @@ public class CacheManagingAuthIdentityManager<T extends AuthIdentity> implements
     }
 
     @Override
-    public void deleteIdentity(String id) {
-        checkNotNull(id);
-        _manager.deleteIdentity(id);
+    public void migrateIdentity(String internalId, String newAuthenticationId)
+            throws IdentityNotFoundException, IdentityExistsException {
+        checkNotNull(internalId);
+        checkNotNull(newAuthenticationId);
+        _manager.migrateIdentity(internalId, newAuthenticationId);
         _cacheManager.invalidateAll();
     }
 
     @Override
-    public Set<String> getRolesByInternalId(String internalId) {
-        checkNotNull(internalId, "internalId");
-        return _manager.getRolesByInternalId(internalId);
+    public void deleteIdentity(String internalId) {
+        checkNotNull(internalId);
+        _manager.deleteIdentity(internalId);
+        _cacheManager.invalidateAll();
     }
 }

@@ -121,9 +121,9 @@ public class DedupQueueResource1 {
                                 @Authenticated Subject subject) {
         // Call different getMessageCount* methods to collect metrics data that distinguish limited vs. unlimited calls.
         if (limit == null || limit.get() == Long.MAX_VALUE) {
-            return getService(partitioned, subject.getId()).getMessageCount(queue);
+            return getService(partitioned, subject.getKey()).getMessageCount(queue);
         } else {
-            return getService(partitioned, subject.getId()).getMessageCountUpTo(queue, limit.get());
+            return getService(partitioned, subject.getKey()).getMessageCountUpTo(queue, limit.get());
         }
     }
 
@@ -139,7 +139,7 @@ public class DedupQueueResource1 {
     public long getClaimCount(@QueryParam("partitioned") BooleanParam partitioned,
                               @PathParam("queue") String queue,
                               @Authenticated Subject subject) {
-        return getService(partitioned, subject.getId()).getClaimCount(queue);
+        return getService(partitioned, subject.getKey()).getClaimCount(queue);
     }
 
     @GET
@@ -155,7 +155,7 @@ public class DedupQueueResource1 {
                               @QueryParam("limit") @DefaultValue("10") IntParam limit,
                               @Authenticated Subject subject) {
         // Not partitioned.  Peeking ignores claims.
-        return getService(partitioned, subject.getId()).peek(queue, limit.get());
+        return getService(partitioned, subject.getKey()).peek(queue, limit.get());
     }
 
     @GET
@@ -171,7 +171,7 @@ public class DedupQueueResource1 {
                               @QueryParam("ttl") @DefaultValue("30") SecondsParam claimTtl,
                               @QueryParam("limit") @DefaultValue("10") IntParam limit,
                               @Authenticated Subject subject) {
-        return getService(partitioned, subject.getId()).poll(queue, claimTtl.get(), limit.get());
+        return getService(partitioned, subject.getKey()).poll(queue, claimTtl.get(), limit.get());
     }
 
     @POST
@@ -190,7 +190,7 @@ public class DedupQueueResource1 {
                                  @Authenticated Subject subject) {
         // Check for null parameters, which will throw a 400, otherwise it throws a 5xx error
         checkArgument(messageIds != null, "Missing message Ids");
-        getService(partitioned, subject.getId()).renew(queue, messageIds, claimTtl.get());
+        getService(partitioned, subject.getKey()).renew(queue, messageIds, claimTtl.get());
         return SuccessResponse.instance();
     }
 
@@ -209,7 +209,7 @@ public class DedupQueueResource1 {
                                        @Authenticated Subject subject) {
         // Check for null parameters, which will throw a 400, otherwise it throws a 5xx error
         checkArgument(messageIds != null, "Missing message Ids");
-        getService(partitioned, subject.getId()).acknowledge(queue, messageIds);
+        getService(partitioned, subject.getKey()).acknowledge(queue, messageIds);
         return SuccessResponse.instance();
     }
 
@@ -252,7 +252,7 @@ public class DedupQueueResource1 {
     public SuccessResponse unclaimAll(@QueryParam("partitioned") BooleanParam partitioned,
                                       @PathParam("queue") String queue,
                                       @Authenticated Subject subject) {
-        getService(partitioned, subject.getId()).unclaimAll(queue);
+        getService(partitioned, subject.getKey()).unclaimAll(queue);
         return SuccessResponse.instance();
     }
 
@@ -267,7 +267,7 @@ public class DedupQueueResource1 {
     public SuccessResponse purge(@QueryParam("partitioned") BooleanParam partitioned,
                                  @PathParam("queue") String queue,
                                  @Authenticated Subject subject) {
-        getService(partitioned, subject.getId()).purge(queue);
+        getService(partitioned, subject.getKey()).purge(queue);
         return SuccessResponse.instance();
     }
 

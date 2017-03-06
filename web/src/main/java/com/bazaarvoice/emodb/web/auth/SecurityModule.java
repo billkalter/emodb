@@ -200,13 +200,15 @@ public class SecurityModule extends PrivateModule {
             @Named("AdminKey") String adminKey, @Named("AnonymousKey") Optional<String> anonymousKey,
             @Named("dao") AuthIdentityManager<ApiKey> daoManager) {
 
-        ImmutableList.Builder<ApiKey> reservedIdentities = ImmutableList.builder();
-        reservedIdentities.add(
-                new ApiKey(replicationKey, REPLICATION_INTERNAL_ID, ImmutableSet.of(DefaultRoles.replication.toString())),
-                new ApiKey(adminKey, ADMIN_INTERNAL_ID, ImmutableSet.of(DefaultRoles.admin.toString())));
+        ImmutableMap.Builder<String, ApiKey> reservedIdentities = ImmutableMap.builder();
+        reservedIdentities.put(replicationKey,
+                new ApiKey(REPLICATION_INTERNAL_ID, ImmutableSet.of(DefaultRoles.replication.toString())));
+        reservedIdentities.put(adminKey,
+                new ApiKey(ADMIN_INTERNAL_ID, ImmutableSet.of(DefaultRoles.admin.toString())));
 
         if (anonymousKey.isPresent()) {
-            reservedIdentities.add(new ApiKey(anonymousKey.get(), ANONYMOUS_INTERNAL_ID, ImmutableSet.of(DefaultRoles.anonymous.toString())));
+            reservedIdentities.put(anonymousKey.get(),
+                    new ApiKey(ANONYMOUS_INTERNAL_ID, ImmutableSet.of(DefaultRoles.anonymous.toString())));
         }
 
         AuthIdentityManager<ApiKey> deferring = new DeferringAuthIdentityManager<>(daoManager, reservedIdentities.build());

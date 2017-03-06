@@ -5,7 +5,6 @@ import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -14,36 +13,68 @@ import static com.google.common.base.Preconditions.checkNotNull;
  */
 public class InMemoryAuthIdentityManager<T extends AuthIdentity> implements AuthIdentityManager<T> {
 
+    private final Map<String, String> _authenticationToInternalIdMap = Maps.newConcurrentMap();
     private final Map<String, T> _identityMap = Maps.newConcurrentMap();
 
     @Override
-    public T getIdentity(String id) {
-        checkNotNull(id, "id");
+    synchronized public void createIdentity(String authenticationId, T identity) throws IdentityExistsException {
+        if (_authenticationToInternalIdMap.containsKey(authenticationId)) {
+            throw new IdentityExistsException(IdentityExistsException.Conflict.authentication_id);
+        }
+        if (_identityMap.containsKey(identity.getInternalId())) {
+            throw new IdentityExistsException(IdentityExistsException.Conflict.internal_id);
+        }
+        _authenticationToInternalIdMap.put(authenticationId, identity.getInternalId());
+        _identityMap.put(identity.getInternalId(), identity);
+    }
+
+    @Override
+    public T getIdentityByAuthenticationId(String authenticationId) {
+        String id = _authenticationToInternalIdMap.get(authenticationId);
+        if (id == null) {
+            return null;
+        }
         return _identityMap.get(id);
     }
 
     @Override
-    public void updateIdentity(T identity) {
-        checkNotNull(identity, "identity");
-        checkNotNull(identity.getId(), "id");
-        _identityMap.put(identity.getId(), identity);
-    }
-
-    @Override
-    public void deleteIdentity(String id) {
-        checkNotNull(id, "id");
-        _identityMap.remove(id);
-    }
-
-    @Override
-    public Set<String> getRolesByInternalId(String internalId) {
+    public T getIdentity(String internalId) {
         checkNotNull(internalId, "internalId");
-        for (T identity : _identityMap.values()) {
-            if (internalId.equals(identity.getInternalId())) {
-                return identity.getRoles();
+        return _identityMap.get(internalId);
+    }
+
+    @Override
+    synchronized public void updateIdentity(T identity) {
+        checkNotNull(identity, "identity");
+        _identityMap.put(identity.getInternalId(), identity);
+    }
+
+    @Override
+    synchronized public void migrateIdentity(String internalId, String newAuthenticationId) {
+        if (_authenticationToInternalIdMap.containsKey(newAuthenticationId)) {
+            throw new IdentityExistsException(IdentityExistsException.Conflict.authentication_id);
+        }
+        if (!_identityMap.containsKey(internalId)) {
+            throw new IdentityNotFoundException();
+        }
+        deleteAuthenticationReferenceToInternalId(internalId);
+        _authenticationToInternalIdMap.put(newAuthenticationId, internalId);
+    }
+
+    @Override
+    synchronized public void deleteIdentity(String internalId) {
+        checkNotNull(internalId, "internalId");
+        _identityMap.remove(internalId);
+        deleteAuthenticationReferenceToInternalId(internalId);
+    }
+
+    private void deleteAuthenticationReferenceToInternalId(String internalId) {
+        for (Map.Entry<String, String> entry : _authenticationToInternalIdMap.entrySet()) {
+            if (entry.getValue().equals(internalId)) {
+                _authenticationToInternalIdMap.remove(entry.getKey());
+                return;
             }
         }
-        return null;
     }
 
     public void reset() {

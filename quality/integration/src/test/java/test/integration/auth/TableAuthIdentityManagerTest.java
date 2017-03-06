@@ -38,9 +38,9 @@ public class TableAuthIdentityManagerTest {
         TableAuthIdentityManager<ApiKey> tableAuthIdentityManager = new TableAuthIdentityManager<>(
                 ApiKey.class, dataStore, "__auth:keys", "__auth:internal_ids", "app_global:sys", Hashing.sha256());
 
-        ApiKey apiKey = new ApiKey("testkey", "id0", ImmutableSet.of("role1", "role2"));
+        ApiKey apiKey = new ApiKey("id0", ImmutableSet.of("role1", "role2"));
         apiKey.setOwner("testowner");
-        tableAuthIdentityManager.updateIdentity(apiKey);
+        tableAuthIdentityManager.createIdentity("testkey", apiKey);
 
         // Verify both tables have been written
 
@@ -59,7 +59,7 @@ public class TableAuthIdentityManagerTest {
                 new AuditBuilder().setComment("test delete").build());
 
         // Verify that a lookup by internal ID works
-        Set<String> roles = tableAuthIdentityManager.getRolesByInternalId("id0");
+        Set<String> roles = tableAuthIdentityManager.getIdentity("id0").getRoles();
         assertEquals(roles, ImmutableSet.of("role1", "role2"));
 
         // Verify that the index record is re-created
@@ -92,18 +92,21 @@ public class TableAuthIdentityManagerTest {
         dataStore.update("__auth:keys", hash, TimeUUIDs.newUUID(), Deltas.literal(oldIdentityMap),
                 new AuditBuilder().setComment("test grandfathering").build());
 
-        // Verify the record can be read by ID.  The key's internal ID will be the hashed ID.
-        ApiKey apiKey = tableAuthIdentityManager.getIdentity(id);
-        assertNotNull(apiKey);
-        assertEquals(apiKey.getId(), id);
-        assertEquals(apiKey.getInternalId(), hash);
-        assertEquals(apiKey.getOwner(), "someone");
-        assertEquals(apiKey.getDescription(), "something");
-        assertEquals(apiKey.getRoles(), ImmutableList.of("role1", "role2"));
-
-        // Verify that a lookup by internal ID works
-        Set<String> roles = tableAuthIdentityManager.getRolesByInternalId(hash);
-        assertEquals(roles, ImmutableSet.of("role1", "role2"));
+        for (int i=0; i < 2; i++) {
+            ApiKey apiKey;
+            if (i == 0) {
+                // Verify the record can be read by ID.  The key's internal ID will be the hashed ID.
+                apiKey = tableAuthIdentityManager.getIdentityByAuthenticationId(id);
+            } else {
+                // Verify that a lookup by internal ID works
+                apiKey = tableAuthIdentityManager.getIdentity(hash);
+            }
+            assertNotNull(apiKey);
+            assertEquals(apiKey.getInternalId(), hash);
+            assertEquals(apiKey.getOwner(), "someone");
+            assertEquals(apiKey.getDescription(), "something");
+            assertEquals(apiKey.getRoles(), ImmutableList.of("role1", "role2"));
+        }
 
         // Verify that the index record was created with the hashed ID as the internal ID
         Map<String, Object> indexMap = dataStore.get("__auth:internal_ids", hash);
@@ -111,7 +114,7 @@ public class TableAuthIdentityManagerTest {
         assertEquals(indexMap.get("hashedId"), hash);
 
         // Verify lookup by internal ID still works with the index record in place
-        roles = tableAuthIdentityManager.getRolesByInternalId(hash);
-        assertEquals(roles, ImmutableSet.of("role1", "role2"));
+        ApiKey apiKey = tableAuthIdentityManager.getIdentity(hash);
+        assertEquals(apiKey.getRoles(), ImmutableSet.of("role1", "role2"));
     }
 }

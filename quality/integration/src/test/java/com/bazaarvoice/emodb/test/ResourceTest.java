@@ -20,6 +20,7 @@ import com.bazaarvoice.emodb.web.throttling.ConcurrentRequestsThrottlingFilter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Multimap;
 import com.sun.jersey.api.core.ResourceConfig;
 import com.sun.jersey.spi.container.ContainerRequestFilter;
 import com.sun.jersey.spi.container.ContainerResponseFilter;
@@ -30,7 +31,9 @@ import test.integration.databus.DatabusJerseyTest;
 import javax.annotation.Nullable;
 import javax.servlet.http.HttpServletRequest;
 import java.text.SimpleDateFormat;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.TimeZone;
 
@@ -40,20 +43,26 @@ public abstract class ResourceTest {
 
     private ConcurrentRequestsThrottlingFilter _concurrentRequestsThrottlingFilter;
 
-    protected static ResourceTestRule setupResourceTestRule(List<Object> resourceList, ApiKey apiKey, ApiKey unauthorizedKey, String typeName) {
-        return setupResourceTestRule(resourceList, ImmutableList.of(), apiKey, unauthorizedKey, typeName);
+    protected static ResourceTestRule setupResourceTestRule(List<Object> resourceList, Map<String, ApiKey> apiKeys,
+                                                            Multimap<String, String> permissionsByRole) {
+        return setupResourceTestRule(resourceList, ImmutableList.of(), apiKeys, permissionsByRole);
     }
 
-    protected static ResourceTestRule setupResourceTestRule(List<Object> resourceList, List<Object> filters, ApiKey apiKey, ApiKey unauthorizedKey, String typeName) {
+    protected static ResourceTestRule setupResourceTestRule(List<Object> resourceList, List<Object> filters,
+                                                            Map<String, ApiKey> apiKeys,
+                                                            Multimap<String, String> permissionsByRole) {
         InMemoryAuthIdentityManager<ApiKey> authIdentityManager = new InMemoryAuthIdentityManager<>();
-        authIdentityManager.updateIdentity(apiKey);
-        authIdentityManager.updateIdentity(unauthorizedKey);
+        for (Map.Entry<String, ApiKey> entry : apiKeys.entrySet()) {
+            authIdentityManager.createIdentity(entry.getKey(), entry.getValue());
+        }
 
         EmoPermissionResolver permissionResolver = new EmoPermissionResolver(mock(DataStore.class), mock(BlobStore.class));
         InMemoryPermissionManager permissionManager = new InMemoryPermissionManager(permissionResolver);
         RoleManager roleManager = new InMemoryRoleManager(permissionManager);
 
-        createRole(roleManager, null, typeName + "-role", ImmutableSet.of(typeName + "|*|*"));
+        for (Map.Entry<String, Collection<String>> entry : permissionsByRole.asMap().entrySet()) {
+            createRole(roleManager, null, entry.getKey(), ImmutableSet.copyOf(entry.getValue()));
+        }
 
         return setupResourceTestRule(resourceList, filters, authIdentityManager, permissionManager);
     }

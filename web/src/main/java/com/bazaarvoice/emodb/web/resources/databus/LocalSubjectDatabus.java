@@ -19,6 +19,6 @@ public class LocalSubjectDatabus extends AbstractSubjectDatabus {
 
     @Override
     protected Databus databus(Subject subject) {
-        return _databusFactory.forOwner(subject.getInternalId());
+        return _databusFactory.forOwner(subject.getId());
     }
 }
