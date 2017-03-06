@@ -138,7 +138,7 @@ public class TableRoleManager implements RoleManager {
     }
 
     @Override
-    public Role createRole(RoleIdentifier id, RoleUpdateRequest request) {
+    public Role createRole(RoleIdentifier id, RoleModification modification) {
         checkNotNull(id, "id");
         checkArgument(isLegalRoleName(id.getId()), "Role cannot have ID %s", id.getId());
         String groupKey = checkGroup(id.getGroup());
@@ -168,25 +168,25 @@ public class TableRoleManager implements RoleManager {
 
         _dataStore.update(_roleTableName, id.toString(), changeId,
                 Deltas.mapBuilder()
-                        .put(NAME_ATTR, request.getName())
-                        .put(DESCRIPTION_ATTR, request.getDescription())
+                        .put(NAME_ATTR, modification.getName())
+                        .put(DESCRIPTION_ATTR, modification.getDescription())
                         .build(),
                 new AuditBuilder().setLocalHost().setComment("Create role " + id).build(),
                 WriteConsistency.GLOBAL);
 
-        if (request.getPermissionUpdate() != null) {
-            List<String> permissions = ImmutableList.copyOf(request.getPermissionUpdate().getPermitted());
+        if (modification.getPermissionUpdate() != null) {
+            List<String> permissions = ImmutableList.copyOf(modification.getPermissionUpdate().getPermitted());
             if (!permissions.isEmpty()) {
                 _permissionManager.updatePermissions(PermissionIDs.forRole(id),
                         new PermissionUpdateRequest().permit(permissions));
             }
         }
 
-        return new Role(id.getGroup(), id.getId(), request.getName(), request.getDescription());
+        return new Role(id.getGroup(), id.getId(), modification.getName(), modification.getDescription());
     }
 
     @Override
-    public void updateRole(RoleIdentifier id, RoleUpdateRequest request) {
+    public void updateRole(RoleIdentifier id, RoleModification modification) {
         // First, verify the role exists
         Role role = getRole(id);
         if (role == null) {
@@ -196,13 +196,13 @@ public class TableRoleManager implements RoleManager {
         // As with creating a role, updating role metadata and permissions cannot be performed atomically.  Update
         // role metadata first since a failure at that point poses the least security risk.
 
-        if (request.isNamePresent() || request.isDescriptionPresent()) {
+        if (modification.isNamePresent() || modification.isDescriptionPresent()) {
             MapDeltaBuilder delta = Deltas.mapBuilder();
-            if (request.isNamePresent()) {
-                delta.put(NAME_ATTR, request.getName());
+            if (modification.isNamePresent()) {
+                delta.put(NAME_ATTR, modification.getName());
             }
-            if (request.isDescriptionPresent()) {
-                delta.put(DESCRIPTION_ATTR, request.getDescription());
+            if (modification.isDescriptionPresent()) {
+                delta.put(DESCRIPTION_ATTR, modification.getDescription());
             }
             _dataStore.update(_roleTableName, id.toString(), TimeUUIDs.newUUID(),
                     delta.build(),
@@ -210,8 +210,8 @@ public class TableRoleManager implements RoleManager {
                     WriteConsistency.GLOBAL);
         }
 
-        if (request.getPermissionUpdate() != null) {
-            _permissionManager.updatePermissions(PermissionIDs.forRole(id), request.getPermissionUpdate());
+        if (modification.getPermissionUpdate() != null) {
+            _permissionManager.updatePermissions(PermissionIDs.forRole(id), modification.getPermissionUpdate());
         }
     }
 

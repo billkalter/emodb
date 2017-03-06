@@ -10,6 +10,7 @@ import com.bazaarvoice.emodb.auth.dropwizard.DropwizardAuthConfigurator;
 import com.bazaarvoice.emodb.auth.identity.AuthIdentityManager;
 import com.bazaarvoice.emodb.auth.identity.AuthIdentityReader;
 import com.bazaarvoice.emodb.auth.identity.CacheManagingAuthIdentityManager;
+import com.bazaarvoice.emodb.auth.identity.DataCenterSynchronizedAuthIdentityManager;
 import com.bazaarvoice.emodb.auth.identity.DeferringAuthIdentityManager;
 import com.bazaarvoice.emodb.auth.identity.TableAuthIdentityManager;
 import com.bazaarvoice.emodb.auth.permissions.CacheManagingPermissionManager;
@@ -30,7 +31,6 @@ import com.bazaarvoice.emodb.databus.ReplicationKey;
 import com.bazaarvoice.emodb.databus.SystemInternalId;
 import com.bazaarvoice.emodb.sor.api.DataStore;
 import com.google.common.base.Optional;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
@@ -193,25 +193,41 @@ public class SecurityModule extends PrivateModule {
 
     @Provides
     @Singleton
-    @Inject
-    AuthIdentityManager<ApiKey> provideAuthIdentityManager(
+    @Named("withDefaults")
+    AuthIdentityManager<ApiKey> provideAuthIdentityManagerWithDefaults(
             @ReplicationKey String replicationKey,
-            InvalidatableCacheManager cacheManager,
             @Named("AdminKey") String adminKey, @Named("AnonymousKey") Optional<String> anonymousKey,
             @Named("dao") AuthIdentityManager<ApiKey> daoManager) {
 
-        ImmutableList.Builder<ApiKey> reservedIdentities = ImmutableList.builder();
-        reservedIdentities.add(
-                new ApiKey(replicationKey, REPLICATION_INTERNAL_ID, ImmutableSet.of(DefaultRoles.replication.toString())),
-                new ApiKey(adminKey, ADMIN_INTERNAL_ID, ImmutableSet.of(DefaultRoles.admin.toString())));
+        ImmutableMap.Builder<String, ApiKey> reservedIdentities = ImmutableMap.builder();
+        reservedIdentities.put(replicationKey,
+                new ApiKey(REPLICATION_INTERNAL_ID, ImmutableSet.of(DefaultRoles.replication.toString())));
+        reservedIdentities.put(adminKey,
+                new ApiKey(ADMIN_INTERNAL_ID, ImmutableSet.of(DefaultRoles.admin.toString())));
 
         if (anonymousKey.isPresent()) {
-            reservedIdentities.add(new ApiKey(anonymousKey.get(), ANONYMOUS_INTERNAL_ID, ImmutableSet.of(DefaultRoles.anonymous.toString())));
+            reservedIdentities.put(anonymousKey.get(),
+                    new ApiKey(ANONYMOUS_INTERNAL_ID, ImmutableSet.of(DefaultRoles.anonymous.toString())));
         }
 
-        AuthIdentityManager<ApiKey> deferring = new DeferringAuthIdentityManager<>(daoManager, reservedIdentities.build());
+        return new DeferringAuthIdentityManager<>(daoManager, reservedIdentities.build());
+    }
 
-        return new CacheManagingAuthIdentityManager<>(deferring, cacheManager);
+    @Provides
+    @Singleton
+    @Named("cacheInvalidating")
+    AuthIdentityManager<ApiKey> provideAuthIdentifyManagerCacheInvalidating(
+            @Named("withDefaults") AuthIdentityManager<ApiKey> defaultedManager,
+            InvalidatableCacheManager cacheManager) {
+        return new CacheManagingAuthIdentityManager<>(defaultedManager, cacheManager);
+    }
+
+    @Provides
+    @Singleton
+    AuthIdentityManager<ApiKey> provideAuthIdentifyManager(
+            @Named("cacheInvalidating") AuthIdentityManager<ApiKey> cacheInvalidatingManager,
+            @AuthZooKeeper CuratorFramework curator) {
+        return new DataCenterSynchronizedAuthIdentityManager<>(cacheInvalidatingManager, curator);
     }
 
     @Provides

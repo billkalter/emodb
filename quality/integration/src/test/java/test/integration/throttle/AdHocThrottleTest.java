@@ -1,6 +1,7 @@
 package test.integration.throttle;
 
 import com.bazaarvoice.emodb.auth.apikey.ApiKey;
+import com.bazaarvoice.emodb.auth.apikey.ApiKeyModification;
 import com.bazaarvoice.emodb.auth.identity.InMemoryAuthIdentityManager;
 import com.bazaarvoice.emodb.auth.permissions.InMemoryPermissionManager;
 import com.bazaarvoice.emodb.auth.role.InMemoryRoleManager;
@@ -102,7 +103,7 @@ public class AdHocThrottleTest extends ResourceTest {
 
     private ResourceTestRule setupDataStoreResourceTestRule() {
         InMemoryAuthIdentityManager<ApiKey> authIdentityManager = new InMemoryAuthIdentityManager<>();
-        authIdentityManager.updateIdentity(new ApiKey(API_KEY, "id", ImmutableList.of("all-sor-role")));
+        authIdentityManager.createIdentity("id", API_KEY, new ApiKeyModification().addRoles("all-sor-role"));
         EmoPermissionResolver permissionResolver = new EmoPermissionResolver(_dataStore, mock(BlobStore.class));
         InMemoryPermissionManager permissionManager = new InMemoryPermissionManager(permissionResolver);
         InMemoryRoleManager roleManager = new InMemoryRoleManager(permissionManager);

@@ -7,7 +7,7 @@ import com.bazaarvoice.emodb.auth.role.Role;
 import com.bazaarvoice.emodb.auth.role.RoleExistsException;
 import com.bazaarvoice.emodb.auth.role.RoleIdentifier;
 import com.bazaarvoice.emodb.auth.role.RoleNotFoundException;
-import com.bazaarvoice.emodb.auth.role.RoleUpdateRequest;
+import com.bazaarvoice.emodb.auth.role.RoleModification;
 import com.bazaarvoice.emodb.auth.role.TableRoleManager;
 import com.bazaarvoice.emodb.sor.api.Audit;
 import com.bazaarvoice.emodb.sor.api.DataStore;
@@ -19,7 +19,6 @@ import com.bazaarvoice.emodb.sor.core.test.InMemoryDataStore;
 import com.bazaarvoice.emodb.sor.delta.Deltas;
 import com.bazaarvoice.emodb.web.auth.EmoPermissionResolver;
 import com.codahale.metrics.MetricRegistry;
-import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -181,7 +180,7 @@ public class TableRoleManagerTest {
         createRole(id, "n1", "d1", ImmutableSet.of("p1", "p2"));
 
         // Modify the role
-        _roleManager.updateRole(id, new RoleUpdateRequest()
+        _roleManager.updateRole(id, new RoleModification()
                 .withName("new name")
                 .withDescription("new description")
                 .withPermissionUpdate(new PermissionUpdateRequest().revoke("p2").permit("p3")));
@@ -198,7 +197,7 @@ public class TableRoleManagerTest {
     @Test
     public void testUpdateNonExistentRole() throws Exception {
         try {
-            _roleManager.updateRole(new RoleIdentifier("g1", "r1"), new RoleUpdateRequest()
+            _roleManager.updateRole(new RoleIdentifier("g1", "r1"), new RoleModification()
                     .withDescription("new description"));
             fail("RoleNotFoundException not thrown");
         } catch (RoleNotFoundException e) {
@@ -286,7 +285,7 @@ public class TableRoleManagerTest {
     }
 
     private void createRole(RoleIdentifier id, String name, String description, Set<String> permissions) {
-        RoleUpdateRequest request = new RoleUpdateRequest()
+        RoleModification request = new RoleModification()
                 .withName(name)
                 .withDescription(description);
 
