@@ -47,6 +47,7 @@ public class InMemoryAuthIdentityManager<T extends AuthIdentity> implements Auth
         }
         String internalId = _internalIdSupplier.get();
         T identity = modification.buildNew(internalId);
+        identity.setMaskedId("***");
         identity.setIssued(new Date());
         _authenticationToInternalIdMap.put(authenticationId, internalId);
         _identityMap.put(internalId, identity);
