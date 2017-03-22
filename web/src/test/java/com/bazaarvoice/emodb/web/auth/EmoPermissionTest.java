@@ -7,6 +7,7 @@ import com.bazaarvoice.emodb.sor.api.TableAvailability;
 import com.bazaarvoice.emodb.sor.api.TableOptions;
 import com.bazaarvoice.emodb.sor.api.TableOptionsBuilder;
 import com.google.common.collect.ImmutableMap;
+import org.apache.shiro.authz.permission.InvalidPermissionStringException;
 import org.testng.annotations.BeforeTest;
 import org.testng.annotations.Test;
 
@@ -347,22 +348,22 @@ public class EmoPermissionTest {
         assertTrue(globalPerm.implies(_resolver.resolvePermission("sor|drop_table|test:facade")));
     }
 
-    @Test (expectedExceptions = IllegalArgumentException.class)
+    @Test (expectedExceptions = InvalidPermissionStringException.class)
     public void testNonConstantInitialScopeRejected() {
         _resolver.resolvePermission("s*");
     }
 
-    @Test (expectedExceptions = IllegalArgumentException.class)
+    @Test (expectedExceptions = InvalidPermissionStringException.class)
     public void testNarrowedWildcardScopeRejected() {
         _resolver.resolvePermission("*|update");
     }
 
-    @Test (expectedExceptions = IllegalArgumentException.class)
+    @Test (expectedExceptions = InvalidPermissionStringException.class)
     public void testInvalidActionCondition() {
         _resolver.resolvePermission("sor|if(intrinsic(\"~table\":\"foo\"))");
     }
 
-    @Test (expectedExceptions = IllegalArgumentException.class)
+    @Test (expectedExceptions = InvalidPermissionStringException.class)
     public void testInvalidTableCondition() {
         _resolver.resolvePermission("sor|*|if(intrinsic(\"~id\":~))");
     }
