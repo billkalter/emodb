@@ -90,6 +90,7 @@ public class SecurityModule extends PrivateModule {
     // Internal identifiers for reserved API keys
     private final static String ADMIN_ID = "__admin";
     private final static String REPLICATION_ID = "__replication";
+    private final static String COMPACTION_CONTROL_ID = "__compaction";
     private final static String ANONYMOUS_ID = "__anonymous";
 
     // Internal identifier for reserved internal processes that do not have a public facing API key
@@ -199,7 +200,7 @@ public class SecurityModule extends PrivateModule {
 
     /**
      * Supplier for generating uniquey IDs for API keys.  Note that, critically, the values returned will never
-     * collide with the reserved IDs from {@link #provideAuthIdentityManagerWithDefaults(String, String, Optional, AuthIdentityManager)}
+     * collide with the reserved IDs from {@link #provideAuthIdentityManagerWithDefaults(String, String, String, Optional, AuthIdentityManager)}
      */
     @Provides
     @Singleton
@@ -229,13 +230,15 @@ public class SecurityModule extends PrivateModule {
     @Singleton
     @Named("withDefaults")
     AuthIdentityManager<ApiKey> provideAuthIdentityManagerWithDefaults(
-            @ReplicationKey String replicationKey,
+            @ReplicationKey String replicationKey, @CompControlApiKey String compactionControlKey,
             @Named("AdminKey") String adminKey, @Named("AnonymousKey") Optional<String> anonymousKey,
             @Named("dao") AuthIdentityManager<ApiKey> daoManager) {
 
         ImmutableMap.Builder<String, ApiKey> reservedIdentities = ImmutableMap.builder();
         reservedIdentities.put(replicationKey,
                 new ApiKey(REPLICATION_ID, ImmutableSet.of(DefaultRoles.replication.toString())));
+        reservedIdentities.put(compactionControlKey,
+                new ApiKey(COMPACTION_CONTROL_ID, ImmutableSet.of(DefaultRoles.compaction_control.toString())));
         reservedIdentities.put(adminKey,
                 new ApiKey(ADMIN_ID, ImmutableSet.of(DefaultRoles.admin.toString())));
 

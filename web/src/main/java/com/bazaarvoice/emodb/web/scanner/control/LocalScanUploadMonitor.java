@@ -17,6 +17,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
+import com.google.common.base.Throwables;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ComparisonChain;
 import com.google.common.collect.FluentIterable;
@@ -81,6 +82,7 @@ public class LocalScanUploadMonitor extends AbstractService {
     private final ScanCountListener _scanCountListener;
     private final DataTools _dataTools;
     private final CompactionControlSource _compactionControlSource;
+    private final ScanCompactionControl _scanCompactionControl;
     private final DataCenters _dataCenters;
     private final Set<String> _activeScans = Sets.newHashSet();
 
@@ -89,7 +91,8 @@ public class LocalScanUploadMonitor extends AbstractService {
     public LocalScanUploadMonitor(ScanWorkflow scanWorkflow, ScanStatusDAO scanStatusDAO,
                                   ScanTableSetManager scanTableSetManager, ScanWriterGenerator scanWriterGenerator,
                                   StashStateListener stashStateListener, ScanCountListener scanCountListener,
-                                  DataTools dataTools, CompactionControlSource compactionControlSource, DataCenters dataCenters) {
+                                  DataTools dataTools, CompactionControlSource compactionControlSource,
+                                  ScanCompactionControl scanCompactionControl, DataCenters dataCenters) {
         _scanWorkflow = checkNotNull(scanWorkflow, "scanWorkflow");
         _scanStatusDAO = checkNotNull(scanStatusDAO, "scanStatusDAO");
         _scanTableSetManager = checkNotNull(scanTableSetManager, "scanTableSetManager");
@@ -98,6 +101,7 @@ public class LocalScanUploadMonitor extends AbstractService {
         _scanCountListener = checkNotNull(scanCountListener, "scanCountListener");
         _dataTools = checkNotNull(dataTools, "dataTools");
         _compactionControlSource = checkNotNull(compactionControlSource, "compactionControlSource");
+        _scanCompactionControl = checkNotNull(scanCompactionControl, "scanCompationControl");
         _dataCenters = checkNotNull(dataCenters, "dataCenters");
     }
 
@@ -238,6 +242,26 @@ public class LocalScanUploadMonitor extends AbstractService {
             return;
         }
 
+        Date now = new Date();
+        Date compactionControlTime = _scanCompactionControl.getCompactionControlTimeForScan(status);
+        if (compactionControlTime.after(now)) {
+            // Don't start any work until the compaction control time has passed, otherwise we may lose data from an
+            // in-flight compaction.  We could throw the message which spawned this refresh back onto the queue with
+            // a delay until after the compaction control time.  However, the wait is short, under a minute,
+            // so just sleep.  If something happens the claim will expire and the refresh will be called again in
+            // the future.
+
+            _log.info("Compaction control time has not passed for scan: {}", id);
+            try {
+                Thread.sleep(compactionControlTime.getTime() - now.getTime());
+            } catch (InterruptedException e) {
+                throw Throwables.propagate(e);
+            }
+            _log.info("Compaction control time has passed for scan: {}", id);
+
+            now = new Date();
+        }
+
         // Update the set of active scans
         if (_activeScans.add(id)) {
             // This is a new scan.  Notify that the number of active scans has changed.
@@ -253,7 +277,6 @@ public class LocalScanUploadMonitor extends AbstractService {
         Set<Integer> incompleteBatches = getIncompleteBatches(status);
         Multimap<Integer, ScanRangeStatus> queuedScansByConcurrencyId = getQueuedRangeScansByConcurrencyId(status);
         int maxConcurrency = status.getOptions().getMaxConcurrentSubRangeScans();
-        Date now = new Date();
 
         for (ScanRangeStatus rangeStatus : getUnqueuedRangeScans(status)) {
             Optional<Integer> blockedByBatchId = rangeStatus.getBlockedByBatchId();

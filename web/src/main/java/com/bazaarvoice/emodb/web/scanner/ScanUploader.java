@@ -7,21 +7,18 @@ import com.bazaarvoice.emodb.sor.compactioncontrol.DelegateCompactionControl;
 import com.bazaarvoice.emodb.sor.core.DataTools;
 import com.bazaarvoice.emodb.sor.db.ScanRange;
 import com.bazaarvoice.emodb.sor.db.ScanRangeSplits;
+import com.bazaarvoice.emodb.web.scanner.control.ScanCompactionControl;
 import com.bazaarvoice.emodb.web.scanner.control.ScanPlan;
 import com.bazaarvoice.emodb.web.scanner.control.ScanWorkflow;
 import com.bazaarvoice.emodb.web.scanner.scanstatus.ScanRangeStatus;
 import com.bazaarvoice.emodb.web.scanner.scanstatus.ScanStatus;
 import com.bazaarvoice.emodb.web.scanner.scanstatus.ScanStatusDAO;
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
 import com.google.common.base.Throwables;
 import com.google.common.collect.Lists;
 import com.google.inject.Inject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.time.Duration;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -44,29 +41,25 @@ public class ScanUploader {
 
     private static final Logger _log = LoggerFactory.getLogger(ScanUploader.class);
 
-    private long _compactionControlBufferTimeInMillis = Duration.ofMinutes(1).toMillis();
-
     private final DataTools _dataTools;
     private final ScanWorkflow _scanWorkflow;
     private final ScanStatusDAO _scanStatusDAO;
     private final StashStateListener _stashStateListener;
     private final CompactionControlSource _compactionControlSource;
+    private final ScanCompactionControl _scanCompactionControl;
     private final DataCenters _dataCenters;
 
     @Inject
     public ScanUploader(DataTools dataTools, ScanWorkflow scanWorkflow, ScanStatusDAO scanStatusDAO,
-                        StashStateListener stashStateListener, @DelegateCompactionControl CompactionControlSource compactionControlSource, DataCenters dataCenters) {
+                        StashStateListener stashStateListener, @DelegateCompactionControl CompactionControlSource compactionControlSource,
+                        ScanCompactionControl scanCompactionControl, DataCenters dataCenters) {
         _dataTools = checkNotNull(dataTools, "dataTools");
         _scanWorkflow = checkNotNull(scanWorkflow, "scanWorkflow");
         _scanStatusDAO = checkNotNull(scanStatusDAO, "scanStatusDAO");
         _stashStateListener = checkNotNull(stashStateListener, "stashStateListener");
         _compactionControlSource = checkNotNull(compactionControlSource, "compactionControlSource");
+        _scanCompactionControl = checkNotNull(scanCompactionControl, "scanCompactionControl");
         _dataCenters = checkNotNull(dataCenters, "dataCenters");
-    }
-
-    @VisibleForTesting
-    public void setCompactionControlBufferTimeInMillis(long compactionControlBufferTimeInMillis) {
-        _compactionControlBufferTimeInMillis = compactionControlBufferTimeInMillis;
     }
 
     public ScanStatus scanAndUpload(String scanId, ScanOptions options) {
@@ -115,15 +108,13 @@ public class ScanUploader {
     }
 
     private void startScanUpload(String scanId, ScanStatus status) {
-        final AtomicReference<Boolean> scanCreated = new AtomicReference<>(false);
-
         try {
             // compaction control timestamp = stash start time + 1 minute buffer time. This is needed to allow the setting time to trickle the request to the DataStore.
             // Setting the time in the future takes care of the issue of there being any in-flight compactions
             // Note: the same compaction control timestamp with 1 minute buffer time is also considered during the multiscan deltas/compactions resolving.
-            long compactionControlTime = status.getCompactionControlTime().getTime();
+            long compactionControlTime = _scanCompactionControl.getCompactionControlTimeForScan(status).getTime();
             // expired time for now is designed to be 10 hours from the compaction control time.
-            long expireTime = compactionControlTime + Duration.ofHours(10).toMillis();
+            long expireTime = _scanCompactionControl.getCompactionControlExpirationForScan(status).getTime();
             // Update the scan start time in Zookeeper in all data centers.
             _compactionControlSource.updateStashTime(scanId, compactionControlTime, Lists.newArrayList(status.getOptions().getPlacements()), expireTime, _dataCenters.getSelf().getName());
         } catch (Exception e) {
@@ -131,44 +122,39 @@ public class ScanUploader {
             throw Throwables.propagate(e);
         }
 
-        // spawn a thread and do the below asynchronously as we would have to wait for a minute to continue to scan and we don't to include that delay in here for responding.
-        new Thread(() ->
-        {
+        boolean scanCreated = false;
+        try {
+            // Create the scan
+            _scanStatusDAO.updateScanStatus(status);
+           scanCreated = true;
+
+            // Notify the workflow that the scan can be started
+            _scanWorkflow.scanStatusUpdated(scanId);
+
+            // Send notification that the scan has started
+            _stashStateListener.stashStarted(status.asPluginStashMetadata());
+        } catch (Exception e) {
+            _log.error("Failed to start scan and upload for scan {}", scanId, e);
+
+            // Delete the entry of the scan start time in Zookeeper.
             try {
-                // We would like to wait 1 minute here to continue to scan to make sure scan don't miss any deltas that are written before the compaction control time.
-                Thread.sleep(_compactionControlBufferTimeInMillis);
-
-                // Create the scan
-                _scanStatusDAO.updateScanStatus(status);
-               scanCreated.set(true);
-
-                // Notify the workflow that the scan can be started
-                _scanWorkflow.scanStatusUpdated(scanId);
-
-                // Send notification that the scan has started
-                _stashStateListener.stashStarted(status.asPluginStashMetadata());
-            } catch (Exception e) {
-                _log.error("Failed to start scan and upload for scan {}", scanId, e);
-
-                // Delete the entry of the scan start time in Zookeeper.
-                try {
-                    _compactionControlSource.deleteStashTime(scanId, _dataCenters.getSelf().getName());
-                } catch (Exception ex) {
-                    _log.error("Failed to delete the stash time for scan {}", scanId, ex);
-                }
-
-                if (scanCreated.get() == true) {
-                    // The scan was not properly started; cancel the scan
-                    try {
-                        _scanStatusDAO.setCanceled(scanId);
-                    } catch (Exception e2) {
-                        // Don't mask the original exception but log it
-                        _log.error("Failed to mark unsuccessfully started scan as canceled: [id={}]", scanId, e2);
-                    }
-                }
-                throw Throwables.propagate(e);
+                _compactionControlSource.deleteStashTime(scanId, _dataCenters.getSelf().getName());
+            } catch (Exception ex) {
+                _log.error("Failed to delete the stash time for scan {}", scanId, ex);
             }
-        }).start();
+
+            if (scanCreated) {
+                // The scan was not properly started; cancel the scan
+                try {
+                    _scanStatusDAO.setCanceled(scanId);
+                } catch (Exception e2) {
+                    // Don't mask the original exception but log it
+                    _log.error("Failed to mark unsuccessfully started scan as canceled: [id={}]", scanId, e2);
+                }
+            }
+
+            throw Throwables.propagate(e);
+        }
     }
 
     /**

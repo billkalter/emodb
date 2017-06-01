@@ -358,8 +358,12 @@ public class DefaultDataStore implements DataStore, DataProvider, DataTools, Tab
         // we will consider the earliest timestamp found as our compactionControlTimestamp.
         // we are also filtering out any expired timestamps. (CompactionControlMonitor should do this for us, but for now it's running every hour. So, just to fill that gap, we are filtering here.)
         // If no timestamps are found, then taking minimum value because we want all the deltas after the compactionControlTimestamp to be deleted as per the compaction rules as usual.
-        long compactionControlTimestamp = stashTimeInfoMap.isEmpty() ?
-                Long.MIN_VALUE : stashTimeInfoMap.values().stream().filter(s -> s.getExpiredTimestamp() > System.currentTimeMillis()).map(StashRunTimeInfo::getTimestamp).min(Long::compareTo).get();
+        long compactionControlTimestamp = stashTimeInfoMap.isEmpty() ? Long.MIN_VALUE :
+                stashTimeInfoMap.values().stream()
+                        .filter(s -> s.getExpiredTimestamp() > System.currentTimeMillis())
+                        .map(StashRunTimeInfo::getTimestamp)
+                        .min(Long::compareTo)
+                        .orElse(Long.MIN_VALUE);
         return expand(record, fullConsistencyTimeStamp, rawConsistencyTimeStamp, compactionControlTimestamp, ignoreRecent, consistency);
     }
 

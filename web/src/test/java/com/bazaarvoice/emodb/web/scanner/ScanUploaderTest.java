@@ -32,8 +32,10 @@ import com.bazaarvoice.emodb.table.db.Table;
 import com.bazaarvoice.emodb.table.db.TableSet;
 import com.bazaarvoice.emodb.table.db.astyanax.AstyanaxStorage;
 import com.bazaarvoice.emodb.web.scanner.control.DistributedScanRangeMonitor;
+import com.bazaarvoice.emodb.web.scanner.control.FixedDelayScanCompactionControl;
 import com.bazaarvoice.emodb.web.scanner.control.InMemoryScanWorkflow;
 import com.bazaarvoice.emodb.web.scanner.control.LocalScanUploadMonitor;
+import com.bazaarvoice.emodb.web.scanner.control.ScanCompactionControl;
 import com.bazaarvoice.emodb.web.scanner.control.ScanRangeComplete;
 import com.bazaarvoice.emodb.web.scanner.control.ScanRangeTask;
 import com.bazaarvoice.emodb.web.scanner.control.ScanTableSetManager;
@@ -128,6 +130,9 @@ import static org.testng.Assert.assertTrue;
 public class ScanUploaderTest {
 
     private ScheduledExecutorService _service;
+    // To avoid unnecessary waits in the test set the compaction control delay to zero
+    private final ScanCompactionControl _scanCompactionControl =
+            new FixedDelayScanCompactionControl(java.time.Duration.ZERO, java.time.Duration.ZERO);
 
     @BeforeMethod
     public void setUp() {
@@ -158,7 +163,8 @@ public class ScanUploaderTest {
 
         LocalScanUploadMonitor monitor = new LocalScanUploadMonitor(scanWorkflow, scanStatusDAO,
                 mock(ScanTableSetManager.class), mock(ScanWriterGenerator.class), mock(StashStateListener.class),
-                mock(ScanCountListener.class), mock(DataTools.class), new InMemoryCompactionControlSource(), mock(DataCenters.class));
+                mock(ScanCountListener.class), mock(DataTools.class), new InMemoryCompactionControlSource(),
+                _scanCompactionControl, mock(DataCenters.class));
         monitor.setExecutorService(mock(ScheduledExecutorService.class));
 
         ScanOptions options = new ScanOptions(ImmutableList.of("p0", "p1"))
@@ -322,15 +328,13 @@ public class ScanUploaderTest {
         ScanStatusDAO scanStatusDAO = new InMemoryScanStatusDAO();
         CompactionControlSource compactionControlSource = new InMemoryCompactionControlSource();
         // Create the instance and run the upload
-        ScanUploader scanUploader = new ScanUploader(dataTools, scanWorkflow, scanStatusDAO, stashStateListener, compactionControlSource, dataCenters);
-        // the default in code is 1 minute for compaction control buffer time, but we don't want to wait that long in the test, so set to a smaller value.
-        scanUploader.setCompactionControlBufferTimeInMillis(Duration.millis(1).getMillis());
+        ScanUploader scanUploader = new ScanUploader(dataTools, scanWorkflow, scanStatusDAO, stashStateListener, compactionControlSource, _scanCompactionControl, dataCenters);
         scanUploader.scanAndUpload("test1",
                 new ScanOptions("placement1").addDestination(ScanDestination.to(new URI("s3://testbucket/test/path"))));
         // sleeping for 1 sec just to be certain that the thread was executed in scanAndUpload process.
         Thread.sleep(Duration.standardSeconds(1).getMillis());
         LocalScanUploadMonitor monitor = new LocalScanUploadMonitor(scanWorkflow, scanStatusDAO, mock(ScanTableSetManager.class),
-                scanWriterGenerator, stashStateListener, scanCountListener, dataTools, compactionControlSource, dataCenters);
+                scanWriterGenerator, stashStateListener, scanCountListener, dataTools, compactionControlSource, _scanCompactionControl, dataCenters);
         monitor.setExecutorService(mock(ScheduledExecutorService.class));
 
         monitor.refreshScan("test1");
@@ -522,7 +526,7 @@ public class ScanUploaderTest {
         ScanStatusDAO scanStatusDAO = new DataStoreScanStatusDAO(new InMemoryDataStore(new MetricRegistry()), "scan_table", "app_global:sys");
         LocalScanUploadMonitor monitor = new LocalScanUploadMonitor(scanWorkflow, scanStatusDAO, scanTableSetManager,
                 mock(ScanWriterGenerator.class), mock(StashStateListener.class), mock(ScanCountListener.class),
-                mock(DataTools.class), new InMemoryCompactionControlSource(), mock(DataCenters.class));
+                mock(DataTools.class), new InMemoryCompactionControlSource(), _scanCompactionControl, mock(DataCenters.class));
         monitor.setExecutorService(mock(ScheduledExecutorService.class));
 
         // Store the scan
@@ -544,7 +548,7 @@ public class ScanUploaderTest {
 
         // Set up the distributed scan range monitor
         DistributedScanRangeMonitor distributedScanRangeMonitor = new DistributedScanRangeMonitor(
-                scanWorkflow, scanStatusDAO, rangeScanUploader, scanTableSetManager, 1, mock(LifeCycleRegistry.class));
+                scanWorkflow, scanStatusDAO, rangeScanUploader, scanTableSetManager, 1, _scanCompactionControl, mock(LifeCycleRegistry.class));
 
         // Give it an executor service that will run the scan synchronously in the current thread
         distributedScanRangeMonitor.setExecutorServices(MoreExecutors.sameThreadExecutor(), mock(ScheduledExecutorService.class));
@@ -604,7 +608,7 @@ public class ScanUploaderTest {
 
         // Set up the distributed scan range monitor
         DistributedScanRangeMonitor distributedScanRangeMonitor = new DistributedScanRangeMonitor(
-                scanWorkflow, scanStatusDAO, rangeScanUploader, scanTableSetManager, 1, mock(LifeCycleRegistry.class));
+                scanWorkflow, scanStatusDAO, rangeScanUploader, scanTableSetManager, 1, _scanCompactionControl, mock(LifeCycleRegistry.class));
 
         // Give it an executor service that will run the scan synchronously in the current thread
         distributedScanRangeMonitor.setExecutorServices(MoreExecutors.sameThreadExecutor(), mock(ScheduledExecutorService.class));
@@ -662,7 +666,7 @@ public class ScanUploaderTest {
         when(dataCenters.getSelf()).thenReturn(dataCenter1);
         when(dataCenters.getAll()).thenReturn(ImmutableList.of(dataCenter1));
 
-        ScanUploader scanUploader = new ScanUploader(mock(DataTools.class), scanWorkflow, scanStatusDAO, mock(StashStateListener.class), new InMemoryCompactionControlSource(), mock(DataCenters.class));
+        ScanUploader scanUploader = new ScanUploader(mock(DataTools.class), scanWorkflow, scanStatusDAO, mock(StashStateListener.class), new InMemoryCompactionControlSource(), _scanCompactionControl, mock(DataCenters.class));
         scanUploader.resubmitWorkflowTasks("id");
 
         verify(scanStatusDAO).getScanStatus("id");
@@ -691,7 +695,7 @@ public class ScanUploaderTest {
         when(dataCenters.getSelf()).thenReturn(dataCenter1);
         when(dataCenters.getAll()).thenReturn(ImmutableList.of(dataCenter1));
 
-        ScanUploader scanUploader = new ScanUploader(mock(DataTools.class), scanWorkflow, scanStatusDAO, mock(StashStateListener.class), new InMemoryCompactionControlSource(), mock(DataCenters.class));
+        ScanUploader scanUploader = new ScanUploader(mock(DataTools.class), scanWorkflow, scanStatusDAO, mock(StashStateListener.class), new InMemoryCompactionControlSource(), _scanCompactionControl, mock(DataCenters.class));
         scanUploader.resubmitWorkflowTasks("id");
 
         verify(scanStatusDAO).getScanStatus("id");
@@ -746,7 +750,7 @@ public class ScanUploaderTest {
 
         LocalScanUploadMonitor monitor = new LocalScanUploadMonitor(scanWorkflow, scanStatusDAO, mock(ScanTableSetManager.class),
                 mock(ScanWriterGenerator.class), mock(StashStateListener.class), mock(ScanCountListener.class),
-                mock(DataTools.class), new InMemoryCompactionControlSource(), mock(DataCenters.class));
+                mock(DataTools.class), new InMemoryCompactionControlSource(), _scanCompactionControl, mock(DataCenters.class));
         monitor.setExecutorService(service);
 
         monitor.refreshScan("closedNew");
@@ -818,7 +822,7 @@ public class ScanUploaderTest {
 
         LocalScanUploadMonitor monitor = new LocalScanUploadMonitor(scanWorkflow, scanStatusDAO, tableSetManager,
                 mock(ScanWriterGenerator.class), mock(StashStateListener.class), mock(ScanCountListener.class),
-                mock(DataTools.class), new InMemoryCompactionControlSource(), mock(DataCenters.class));
+                mock(DataTools.class), new InMemoryCompactionControlSource(), _scanCompactionControl, mock(DataCenters.class));
         monitor.setExecutorService(service);
 
         monitor.cleanupOrphanedScans();
@@ -953,7 +957,7 @@ public class ScanUploaderTest {
                 .thenReturn(RangeScanUploaderResult.resplit(resplitRange));
 
         DistributedScanRangeMonitor distributedScanRangeMonitor = new DistributedScanRangeMonitor(
-                scanWorkflow, scanStatusDAO, rangeScanUploader, scanTableSetManager, 1, mock(LifeCycleRegistry.class));
+                scanWorkflow, scanStatusDAO, rangeScanUploader, scanTableSetManager, 1, _scanCompactionControl, mock(LifeCycleRegistry.class));
 
         distributedScanRangeMonitor.setExecutorServices(MoreExecutors.sameThreadExecutor(), mock(ScheduledExecutorService.class));
         distributedScanRangeMonitor.startScansIfAvailable();
@@ -1003,7 +1007,8 @@ public class ScanUploaderTest {
 
         LocalScanUploadMonitor monitor = new LocalScanUploadMonitor(scanWorkflow, scanStatusDAO,
                 mock(ScanTableSetManager.class), mock(ScanWriterGenerator.class), mock(StashStateListener.class),
-                mock(ScanCountListener.class), dataTools, new InMemoryCompactionControlSource(), mock(DataCenters.class));
+                mock(ScanCountListener.class), dataTools, new InMemoryCompactionControlSource(), _scanCompactionControl,
+                mock(DataCenters.class));
         monitor.setExecutorService(mock(ScheduledExecutorService.class));
 
         monitor.refreshScan(id);

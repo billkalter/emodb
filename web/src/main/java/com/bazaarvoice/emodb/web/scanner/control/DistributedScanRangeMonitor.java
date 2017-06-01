@@ -55,19 +55,23 @@ public class DistributedScanRangeMonitor implements Managed {
     private final int _maxConcurrentScans;
     // No ConcurrentSet in Java, so use a ConcurrentMap instead.
     private final ConcurrentMap<Integer, ClaimedTask> _claimedTasks = Maps.newConcurrentMap();
+    private final ScanCompactionControl _scanCompactionControl;
     private ExecutorService _scanningService;
     private ScheduledExecutorService _backgroundService;
 
     @Inject
     public DistributedScanRangeMonitor(ScanWorkflow scanWorkflow, ScanStatusDAO scanStatusDAO,
                                        RangeScanUploader rangeScanUploader, ScanTableSetManager scanTableSetManager,
-                                       @MaxConcurrentScans int maxConcurrentScans, LifeCycleRegistry lifecycle) {
+                                       @MaxConcurrentScans int maxConcurrentScans,
+                                       ScanCompactionControl scanCompactionControl,
+                                       LifeCycleRegistry lifecycle) {
         _scanWorkflow = checkNotNull(scanWorkflow, "scanWorkflow");
         _scanStatusDAO = checkNotNull(scanStatusDAO, "scanStatusDAO");
         _rangeScanUploader = checkNotNull(rangeScanUploader, "rangeScanUploader");
         _scanTableSetManager = checkNotNull(scanTableSetManager, "scanTableSetManager");
         checkArgument(maxConcurrentScans > 0, "maxConcurrentScans <= 0");
         _maxConcurrentScans = maxConcurrentScans;
+        _scanCompactionControl = checkNotNull(scanCompactionControl, "scanCompactionControl");
 
         lifecycle.manage(this);
     }
@@ -336,8 +340,10 @@ public class DistributedScanRangeMonitor implements Managed {
 
             // Get the distributed table set for this scan
             TableSet tableSet = _scanTableSetManager.getTableSetForScan(scanId);
+            // Get the compaction control time
+            Date compactionControlTime = _scanCompactionControl.getCompactionControlTimeForScan(status);
             // Perform the range scan
-            result = _rangeScanUploader.scanAndUpload(taskId, status.getOptions(), placement, range, tableSet, status.getCompactionControlTime());
+            result = _rangeScanUploader.scanAndUpload(taskId, status.getOptions(), placement, range, tableSet, compactionControlTime);
 
             _log.info("Completed scan range task: {}", task);
         } catch (Throwable t) {

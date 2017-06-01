@@ -22,7 +22,9 @@ import com.bazaarvoice.emodb.table.db.astyanax.AstyanaxStorage;
 import com.bazaarvoice.emodb.web.scanner.ScanDestination;
 import com.bazaarvoice.emodb.web.scanner.ScanOptions;
 import com.bazaarvoice.emodb.web.scanner.ScanUploader;
+import com.bazaarvoice.emodb.web.scanner.control.FixedDelayScanCompactionControl;
 import com.bazaarvoice.emodb.web.scanner.control.InMemoryScanWorkflow;
+import com.bazaarvoice.emodb.web.scanner.control.ScanCompactionControl;
 import com.bazaarvoice.emodb.web.scanner.control.ScanWorkflow;
 import com.bazaarvoice.emodb.web.scanner.scanstatus.InMemoryScanStatusDAO;
 import com.bazaarvoice.emodb.web.scanner.scanstatus.ScanStatus;
@@ -65,11 +67,10 @@ public class ScanOperationsTimeUpdateTest {
         ScanOptions scanOptions = new ScanOptions("placement1").addDestination(ScanDestination.to(new URI("s3://testbucket/test/path")));
 
         CompactionControlSource compactionControlSource = new InMemoryCompactionControlSource();
+        ScanCompactionControl scanCompactionControl = new FixedDelayScanCompactionControl(java.time.Duration.ZERO, java.time.Duration.ZERO);
 
         // start the scan
-        ScanUploader scanUploader = new ScanUploader(getDataTools(), scanWorkflow, scanStatusDAO, stashStateListener, compactionControlSource, dataCenters);
-        // the default in code is 1 minute for compaction control buffer time, but we don't want to wait that long in the test, so set to a smaller value.
-        scanUploader.setCompactionControlBufferTimeInMillis(Duration.millis(1).getMillis());
+        ScanUploader scanUploader = new ScanUploader(getDataTools(), scanWorkflow, scanStatusDAO, stashStateListener, compactionControlSource, scanCompactionControl, dataCenters);
         scanUploader.scanAndUpload("test1", scanOptions);
         // sleeping for 1 sec just to be certain that the thread was executed in scanAndUpload process.
         Thread.sleep(Duration.standardSeconds(1).getMillis());
@@ -97,11 +98,10 @@ public class ScanOperationsTimeUpdateTest {
         doThrow(Exception.class).when(scanStatusDAO).updateScanStatus(any(ScanStatus.class));
 
         CompactionControlSource compactionControlSource = new InMemoryCompactionControlSource();
+        ScanCompactionControl scanCompactionControl = new FixedDelayScanCompactionControl(java.time.Duration.ZERO, java.time.Duration.ZERO);
 
         // start the scan which will throw an exception
-        ScanUploader scanUploader = new ScanUploader(getDataTools(), scanWorkflow, scanStatusDAO, stashStateListener, compactionControlSource, dataCenters);
-        // the default in code is 1 minute for compaction control buffer time, but we don't want to wait that long in the test, so set to a smaller value.
-        scanUploader.setCompactionControlBufferTimeInMillis(Duration.millis(1).getMillis());
+        ScanUploader scanUploader = new ScanUploader(getDataTools(), scanWorkflow, scanStatusDAO, stashStateListener, compactionControlSource, scanCompactionControl, dataCenters);
         try {
             scanUploader.scanAndUpload("test1", scanOptions);
         } catch (Exception e) {

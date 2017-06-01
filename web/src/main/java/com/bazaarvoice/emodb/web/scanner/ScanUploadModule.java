@@ -36,9 +36,11 @@ import com.bazaarvoice.emodb.web.scanner.control.DistributedScanRangeMonitor;
 import com.bazaarvoice.emodb.web.scanner.control.MaxConcurrentScans;
 import com.bazaarvoice.emodb.web.scanner.control.QueueScanWorkflow;
 import com.bazaarvoice.emodb.web.scanner.control.SQSScanWorkflow;
+import com.bazaarvoice.emodb.web.scanner.control.ScanCompactionControl;
 import com.bazaarvoice.emodb.web.scanner.control.ScanTableSetManager;
 import com.bazaarvoice.emodb.web.scanner.control.ScanUploadMonitor;
 import com.bazaarvoice.emodb.web.scanner.control.ScanWorkflow;
+import com.bazaarvoice.emodb.web.scanner.control.FixedDelayScanCompactionControl;
 import com.bazaarvoice.emodb.web.scanner.notifications.CloudWatchScanCountListener;
 import com.bazaarvoice.emodb.web.scanner.notifications.MetricsScanCountListener;
 import com.bazaarvoice.emodb.web.scanner.notifications.MetricsStashStateListener;
@@ -87,6 +89,7 @@ import org.joda.time.format.DateTimeFormat;
 import org.joda.time.format.DateTimeFormatter;
 import org.slf4j.LoggerFactory;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
@@ -140,6 +143,11 @@ public class ScanUploadModule extends PrivateModule {
 
         bind(String.class).annotatedWith(ScanStatusTable.class).toInstance(_config.getScanStatusTable());
         bind(Integer.class).annotatedWith(MaxConcurrentScans.class).toInstance(_config.getScanThreadCount());
+
+        // Enforces a 1-minute delay between when a scan starts and when the actual scan process begins.  This
+        // provides a time buffer to allow compaction control to fully settle in each cluster.
+        bind(ScanCompactionControl.class).toInstance(
+                new FixedDelayScanCompactionControl(Duration.ofMinutes(1), Duration.ofHours(10)));
 
         bind(new TypeLiteral<Optional<String>>(){}).annotatedWith(Names.named("pendingScanRangeQueueName"))
                 .toInstance(_config.getPendingScanRangeQueueName());
