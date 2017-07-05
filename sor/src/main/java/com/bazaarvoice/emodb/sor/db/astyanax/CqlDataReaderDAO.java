@@ -24,7 +24,9 @@ import com.codahale.metrics.Meter;
 import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.Timer;
 import com.codahale.metrics.annotation.Timed;
+import com.datastax.driver.core.CodecRegistry;
 import com.datastax.driver.core.ConsistencyLevel;
+import com.datastax.driver.core.ProtocolVersion;
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Session;
@@ -259,9 +261,13 @@ public class CqlDataReaderDAO implements DataReaderDAO {
      * each row in rows.
      */
     private Record newRecordFromCql(Key key, Iterable<Row> rows) {
-        Iterator<Map.Entry<UUID, Change>> changeIter = decodeChangesFromCql(new CqlDeltaIterator(rows.iterator(), BLOCK_RESULT_SET_COLUMN, VALUE_RESULT_SET_COLUMN, false, _deltaPrefixLength));
-        Iterator<Map.Entry<UUID, Compaction>> compactionIter = decodeCompactionsFromCql(new CqlDeltaIterator(rows.iterator(), BLOCK_RESULT_SET_COLUMN, VALUE_RESULT_SET_COLUMN, false, _deltaPrefixLength));
-        Iterator<RecordEntryRawMetadata> rawMetadataIter = rawMetadataFromCql(new CqlDeltaIterator(rows.iterator(), BLOCK_RESULT_SET_COLUMN, VALUE_RESULT_SET_COLUMN, false, _deltaPrefixLength));
+        Session session = ((AstyanaxTable) key.getTable()).getReadStorage().getPlacement().getKeyspace().getCqlSession();
+        ProtocolVersion protocolVersion = session.getCluster().getConfiguration().getProtocolOptions().getProtocolVersion();
+        CodecRegistry codecRegistry = session.getCluster().getConfiguration().getCodecRegistry();
+        
+        Iterator<Map.Entry<UUID, Change>> changeIter = decodeChangesFromCql(new CqlDeltaIterator(rows.iterator(), BLOCK_RESULT_SET_COLUMN, VALUE_RESULT_SET_COLUMN, false, _deltaPrefixLength, protocolVersion, codecRegistry));
+        Iterator<Map.Entry<UUID, Compaction>> compactionIter = decodeCompactionsFromCql(new CqlDeltaIterator(rows.iterator(), BLOCK_RESULT_SET_COLUMN, VALUE_RESULT_SET_COLUMN, false, _deltaPrefixLength, protocolVersion, codecRegistry));
+        Iterator<RecordEntryRawMetadata> rawMetadataIter = rawMetadataFromCql(new CqlDeltaIterator(rows.iterator(), BLOCK_RESULT_SET_COLUMN, VALUE_RESULT_SET_COLUMN, false, _deltaPrefixLength, protocolVersion, codecRegistry));
 
         return new RecordImpl(key, compactionIter, changeIter, rawMetadataIter);
     }
@@ -790,7 +796,9 @@ public class CqlDataReaderDAO implements DataReaderDAO {
         Iterator<Change> deltas = Iterators.emptyIterator();
         if (includeContentData) {
             TableDDL deltaDDL = placement.getDeltaTableDDL();
-            deltas = decodeDeltaColumns(new CqlDeltaIterator(columnScan(placement, deltaDDL, rowKey, columnRange, !reversed, scaledLimit, consistency).iterator(), BLOCK_RESULT_SET_COLUMN, VALUE_RESULT_SET_COLUMN, reversed, _deltaPrefixLength));
+            ProtocolVersion protocolVersion = placement.getKeyspace().getCqlSession().getCluster().getConfiguration().getProtocolOptions().getProtocolVersion();
+            CodecRegistry codecRegistry = placement.getKeyspace().getCqlSession().getCluster().getConfiguration().getCodecRegistry();
+            deltas = decodeDeltaColumns(new CqlDeltaIterator(columnScan(placement, deltaDDL, rowKey, columnRange, !reversed, scaledLimit, consistency).iterator(), BLOCK_RESULT_SET_COLUMN, VALUE_RESULT_SET_COLUMN, reversed, _deltaPrefixLength, protocolVersion, codecRegistry));
         }
 
         // Read Audit objects
