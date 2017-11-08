@@ -82,6 +82,7 @@ public class DefaultFanout extends AbstractScheduledService {
                          DataCenter currentDataCenter,
                          RateLimitedLogFactory logFactory,
                          SubscriptionEvaluator subscriptionEvaluator,
+                         ExecutorService fanoutThreads,
                          MetricRegistry metricRegistry, Clock clock) {
         _name = checkNotNull(name, "name");
         _eventSource = checkNotNull(eventSource, "eventSource");
@@ -91,6 +92,7 @@ public class DefaultFanout extends AbstractScheduledService {
         _subscriptionsSupplier = checkNotNull(subscriptionsSupplier, "subscriptionsSupplier");
         _currentDataCenter = checkNotNull(currentDataCenter, "currentDataCenter");
         _subscriptionEvaluator = checkNotNull(subscriptionEvaluator, "subscriptionEvaluator");
+        _fanoutThreads = checkNotNull(fanoutThreads, "fanoutThreads");
 
         _rateLimitedLog = logFactory.from(_log);
         _eventsRead = newEventMeter("read", metricRegistry);
@@ -100,9 +102,7 @@ public class DefaultFanout extends AbstractScheduledService {
         _lastLagStopwatch = Stopwatch.createStarted(ClockTicker.getTicker(clock));
         _clock = clock;
 
-        _fanoutThreads = Executors.newFixedThreadPool(2,
-                new ThreadFactoryBuilder().setNameFormat("fanout-" + name).build());
-        
+
         ServiceFailureListener.listenTo(this, metricRegistry);
     }
 
@@ -144,8 +144,6 @@ public class DefaultFanout extends AbstractScheduledService {
     protected void shutDown() throws Exception {
         // Leadership lost, stop posting fanout lag
         _lag.close();
-        // Shutdown the fanout threads
-        _fanoutThreads.shutdownNow();
     }
 
     private boolean copyEvents() {
@@ -173,10 +171,10 @@ public class DefaultFanout extends AbstractScheduledService {
         if (!_useParallelFanout) {
             // If we are not currently using parallel fanout and the lag is currently greater than the threshold then
             // start using parallel fanout.
-            if (_lastLagSeconds > START_PARALLEL_FANOUT_THRESHOLD_SECONDS) {
+            if (_lastLagSeconds >= START_PARALLEL_FANOUT_THRESHOLD_SECONDS) {
                 _useParallelFanout = true;
             }
-        } else if (_lastLagSeconds < STOP_PARALLEL_FANOUT_THRESHOLD_SECONDS) {
+        } else if (_lastLagSeconds <= STOP_PARALLEL_FANOUT_THRESHOLD_SECONDS) {
             // If we are not currently using parallel fanout and the lag has dropped belowthe threshold then
             // stop using parallel fanout.
             _useParallelFanout = false;

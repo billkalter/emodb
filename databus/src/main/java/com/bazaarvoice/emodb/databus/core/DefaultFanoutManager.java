@@ -19,6 +19,7 @@ import com.google.common.base.Supplier;
 import com.google.common.collect.Multimap;
 import com.google.common.net.HostAndPort;
 import com.google.common.util.concurrent.Service;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.google.inject.Inject;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.utils.ZKPaths;
@@ -27,6 +28,8 @@ import org.joda.time.Duration;
 import javax.annotation.Nullable;
 import java.nio.ByteBuffer;
 import java.time.Clock;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -88,6 +91,9 @@ public class DefaultFanoutManager implements FanoutManager {
         };
         final Supplier<Iterable<OwnedSubscription>> subscriptionsSupplier = () -> _subscriptionDao.getAllSubscriptions();
 
+        final ExecutorService fanoutThreads = Executors.newCachedThreadPool(
+                new ThreadFactoryBuilder().setNameFormat("fanout-" + name).build());
+
         LeaderService leaderService = new LeaderService(
                 _curator, ZKPaths.makePath("/leader/fanout", name), _selfId, "LeaderSelector-" + name, 1, TimeUnit.MINUTES,
                 new Supplier<Service>() {
@@ -95,7 +101,7 @@ public class DefaultFanoutManager implements FanoutManager {
                     public Service get() {
                         return new DefaultFanout(name, eventSource, eventSink, replicateOutbound, sleepWhenIdle,
                                 subscriptionsSupplier, _dataCenters.getSelf(), _logFactory, _subscriptionEvaluator,
-                                _metricRegistry, _clock);
+                                fanoutThreads, _metricRegistry, _clock);
                     }
                 });
         ServiceFailureListener.listenTo(leaderService, _metricRegistry);
