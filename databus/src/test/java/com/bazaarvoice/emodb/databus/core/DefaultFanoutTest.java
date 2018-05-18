@@ -25,13 +25,13 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
-import org.joda.time.Duration;
 import org.slf4j.Logger;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import java.nio.ByteBuffer;
 import java.time.Clock;
+import java.time.Duration;
 import java.util.Date;
 import java.util.List;
 
@@ -91,7 +91,7 @@ public class DefaultFanoutTest {
         MetricRegistry metricRegistry = new MetricRegistry();
 
         _defaultFanout = new DefaultFanout("test", "test", mock(EventSource.class), eventSink, _outboundPartitionSelector,
-                Duration.standardSeconds(1), _subscriptionsSupplier, _currentDataCenter, rateLimitedLogFactory, subscriptionEvaluator,
+                Duration.ofSeconds(1), _subscriptionsSupplier, _currentDataCenter, rateLimitedLogFactory, subscriptionEvaluator,
                 new FanoutLagMonitor(mock(LifeCycleRegistry.class), metricRegistry), metricRegistry, Clock.systemUTC());
     }
 
@@ -101,7 +101,7 @@ public class DefaultFanoutTest {
 
         OwnedSubscription subscription = new DefaultOwnedSubscription(
                 "test", Conditions.intrinsic(Intrinsic.TABLE, Conditions.equal("matching-table")),
-                new Date(), Duration.standardDays(1), "owner0");
+                new Date(), Duration.ofDays(1), "owner0");
 
         EventData event = newEvent("id0", "matching-table", "key0");
 
@@ -122,7 +122,7 @@ public class DefaultFanoutTest {
 
         OwnedSubscription subscription = new DefaultOwnedSubscription(
                 "test", Conditions.intrinsic(Intrinsic.TABLE, Conditions.equal("not-matching-table")),
-                new Date(), Duration.standardDays(1), "owner0");
+                new Date(), Duration.ofDays(1), "owner0");
 
         EventData event = newEvent("id0", "other-table", "key0");
 
@@ -144,7 +144,7 @@ public class DefaultFanoutTest {
 
         OwnedSubscription subscription = new DefaultOwnedSubscription(
                 "test", Conditions.intrinsic(Intrinsic.TABLE, Conditions.equal("unauthorized-table")),
-                new Date(), Duration.standardDays(1), "owner0");
+                new Date(), Duration.ofDays(1), "owner0");
 
         EventData event = newEvent("id0", "unauthorized-table", "key0");
 

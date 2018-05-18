@@ -21,13 +21,13 @@ import com.google.common.collect.Multimap;
 import com.google.common.util.concurrent.AbstractScheduledService;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
-import org.joda.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nullable;
 import java.nio.ByteBuffer;
 import java.time.Clock;
+import java.time.Duration;
 import java.util.Collections;
 import java.util.Date;
 import java.util.LinkedList;
@@ -141,7 +141,7 @@ public class DefaultFanout extends AbstractScheduledService {
 
     @Override
     protected Scheduler scheduler() {
-        return Scheduler.newFixedDelaySchedule(0, _sleepWhenIdle.getMillis(), TimeUnit.MILLISECONDS);
+        return Scheduler.newFixedDelaySchedule(0, _sleepWhenIdle.toMillis(), TimeUnit.MILLISECONDS);
     }
 
     @Override
