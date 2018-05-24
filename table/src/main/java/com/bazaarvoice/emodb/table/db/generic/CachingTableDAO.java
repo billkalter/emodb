@@ -3,14 +3,14 @@ package com.bazaarvoice.emodb.table.db.generic;
 import com.bazaarvoice.emodb.cachemgr.api.CacheRegistry;
 import com.bazaarvoice.emodb.common.api.impl.LimitCounter;
 import com.bazaarvoice.emodb.sor.api.Audit;
-import com.bazaarvoice.emodb.sor.api.UnpublishedDatabusEvent;
 import com.bazaarvoice.emodb.sor.api.FacadeExistsException;
 import com.bazaarvoice.emodb.sor.api.FacadeOptions;
 import com.bazaarvoice.emodb.sor.api.TableExistsException;
-import com.bazaarvoice.emodb.sor.api.UnpublishedDatabusEventType;
 import com.bazaarvoice.emodb.sor.api.TableOptions;
 import com.bazaarvoice.emodb.sor.api.UnknownFacadeException;
 import com.bazaarvoice.emodb.sor.api.UnknownTableException;
+import com.bazaarvoice.emodb.sor.api.UnpublishedDatabusEvent;
+import com.bazaarvoice.emodb.sor.api.UnpublishedDatabusEventType;
 import com.bazaarvoice.emodb.table.db.DroppedTableException;
 import com.bazaarvoice.emodb.table.db.MoveType;
 import com.bazaarvoice.emodb.table.db.Table;
@@ -22,11 +22,11 @@ import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.inject.Inject;
-import org.joda.time.DateTime;
-import org.joda.time.Duration;
 
 import javax.annotation.Nullable;
+import java.time.Duration;
 import java.util.Collection;
+import java.util.Date;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -42,7 +42,7 @@ import static java.lang.String.format;
  * This class assumes that create/drop operations are protected/wrapped by {@link MutexTableDAO}.
  */
 public class CachingTableDAO implements TableDAO {
-    public static final Duration CACHE_DURATION = Duration.standardMinutes(10);
+    public static final Duration CACHE_DURATION = Duration.ofMinutes(10);
 
     private final TableDAO _delegate;
     private final LoadingCache<String, Optional<Table>> _tableCache;
@@ -54,7 +54,7 @@ public class CachingTableDAO implements TableDAO {
 
         // The table cache maps table names to AstyanaxTable objects.
         _tableCache = CacheBuilder.newBuilder()
-                .expireAfterWrite(CACHE_DURATION.getMillis(), TimeUnit.MILLISECONDS)
+                .expireAfterWrite(CACHE_DURATION.toMillis(), TimeUnit.MILLISECONDS)
                 .recordStats()
                 .build(new CacheLoader<String, Optional<Table>>() {
                     @Override
@@ -83,7 +83,7 @@ public class CachingTableDAO implements TableDAO {
     }
 
     @Override
-    public Iterator<UnpublishedDatabusEvent> listUnpublishedDatabusEvents(DateTime fromInclusive, DateTime toExclusive) {
+    public Iterator<UnpublishedDatabusEvent> listUnpublishedDatabusEvents(Date fromInclusive, Date toExclusive) {
         return _delegate.listUnpublishedDatabusEvents(fromInclusive, toExclusive);
     }
 

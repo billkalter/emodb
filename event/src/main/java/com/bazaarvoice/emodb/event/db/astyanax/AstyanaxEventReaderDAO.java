@@ -39,12 +39,12 @@ import com.netflix.astyanax.util.RangeBuilder;
 import io.dropwizard.lifecycle.ExecutorServiceManager;
 import io.dropwizard.util.Duration;
 import org.apache.cassandra.utils.ByteBufferUtil;
-import org.joda.time.format.DateTimeFormatter;
-import org.joda.time.format.ISODateTimeFormat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.ByteBuffer;
+import java.time.Instant;
+import java.time.format.DateTimeFormatter;
 import java.util.Collection;
 import java.util.Date;
 import java.util.Iterator;
@@ -61,7 +61,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 
 public class AstyanaxEventReaderDAO implements EventReaderDAO {
     private static final Logger _log = LoggerFactory.getLogger(AstyanaxEventReaderDAO.class);
-    private static final DateTimeFormatter ISO_FORMATTER = ISODateTimeFormat.dateTime().withZoneUTC();
+    private static final DateTimeFormatter ISO_FORMATTER = DateTimeFormatter.ISO_INSTANT;
 
     private static final int NUM_CLEANUP_THREADS = 2;
     private static final int MAX_CLEANUP_QUEUE_LENGTH = 100;
@@ -403,7 +403,7 @@ public class AstyanaxEventReaderDAO implements EventReaderDAO {
     private boolean isRecent(ByteBuffer slabId) {
         UUID uuid = TimeUUIDSerializer.get().fromByteBuffer(slabId.duplicate());
         long age = System.currentTimeMillis() - TimeUUIDs.getTimeMillis(uuid);
-        return age <= Constants.OPEN_SLAB_MARKER_TTL.getMillis();
+        return age <= Constants.OPEN_SLAB_MARKER_TTL.toMillis();
     }
 
     private void closeStaleSlabAsync(final String channel, final ByteBuffer slabId) {
@@ -510,7 +510,7 @@ public class AstyanaxEventReaderDAO implements EventReaderDAO {
                     // Log the slab that we start reading from
                     foundStartingSlab = true;
                     _log.info("Starting to replay {} from slabid {}, for since timestamp of {}", channel,
-                            UUIDSerializer.get().fromByteBuffer(slabId),  ISO_FORMATTER.print(since.getTime()));
+                            UUIDSerializer.get().fromByteBuffer(slabId),  ISO_FORMATTER.format(since.toInstant()));
                 }
                 return true;
             }
