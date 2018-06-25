@@ -75,6 +75,11 @@ public class DataStoreConfiguration {
     @JsonProperty("stashBlackListTableCondition")
     private Optional<String> _stashBlackListTableCondition = Optional.absent();
 
+    @Valid
+    @NotNull
+    @JsonProperty("auditLog")
+    private Optional<AuditLogConfiguration> _auditLogConfiguration = Optional.absent();
+
     public Optional<String> getStashBlackListTableCondition() {
         return _stashBlackListTableCondition;
     }
@@ -163,5 +168,14 @@ public class DataStoreConfiguration {
 
     public int getDeltaBlockSizeInKb() {
         return _deltaBlockSizeInKb;
+    }
+
+    public Optional<AuditLogConfiguration> getAuditLogConfiguration() {
+        return _auditLogConfiguration;
+    }
+
+    public DataStoreConfiguration setAuditLogConfiguration(Optional<AuditLogConfiguration> auditLogConfiguration) {
+        _auditLogConfiguration = auditLogConfiguration;
+        return this;
     }
 }
